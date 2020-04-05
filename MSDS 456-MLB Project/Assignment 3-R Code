@@ -1,0 +1,4508 @@
+library(markovchain)
+
+
+fn<-list.files("~/play_files")
+
+for (i in 1:30){
+  fname<-fn[i]
+  fname<-substr(fname,start = 5, stop = 7)
+  assign(fname,read.csv(fn[i],header = FALSE))
+  }
+MLB<-rbind(ANA,ARI,ATL,BAL,BOS,CHA,CHN,CIN,CLE,COL,DET,HOU,KCA,LAN,MIA,MIL,MIN,NYA,NYN,OAK,PHI,PIT,SDN,SEA,SFN,SLN,TBA,TEX,TOR,WAS)
+
+
+names(MLB)<-c("Game_ID","Visiting_Team","Inning","Batting_Team","Outs","Balls","Strikes","Vistor_Score","Home_Score","Batter","Batter_Hand","Pitcher","Pitcher_Hand","First_Runner","Second_Runner","Third_Runner","Event_Text","Leadoff_Flag","PinchHit_Flag","Defensive_Position","Lineup_Position","Event_Type","Batter_Event_Flag","AB_Flag","Hit_Value","SH_Flag","SF_Flag","Outs_On_Play","RBIs_On_Play","Wild_Pitch_Flag","Passed_Ball_Flag","Num_Errors","Batter_Dest","Runner_On_1st_Dest","Runner_On_2nd_Dest","Runner_On_3rd_Dest")
+
+"Expected runs for MLB per state"
+
+MLB["First"]<-0
+MLB["Second"]<-0
+MLB["Third"]<-0
+MLB["Runs_Scored"]<-0
+MLB["Result_Outs"]<-MLB$Outs+MLB$Outs_On_Play
+
+for (i in 1:nrow(MLB)){
+  if (MLB$First_Runner[i]!=""){
+    MLB$First[i]<-1
+  }
+  if (MLB$Second_Runner[i]!=""){
+    MLB$Second[i]<-1
+  }
+  if (MLB$Third_Runner[i]!=""){
+    MLB$Third[i]<-1
+  }
+  if (MLB$Batter_Dest[i]>=4){
+    MLB$Runs_Scored[i]<-MLB$Runs_Scored[i]+1
+  }
+  if (MLB$Runner_On_1st_Dest[i]>=4){
+    MLB$Runs_Scored[i]<-MLB$Runs_Scored[i]+1
+  }
+  if (MLB$Runner_On_2nd_Dest[i]>=4){
+    MLB$Runs_Scored[i]<-MLB$Runs_Scored[i]+1
+  }
+  if (MLB$Runner_On_3rd_Dest[i]>=4){
+    MLB$Runs_Scored[i]<-MLB$Runs_Scored[i]+1
+  }
+}
+
+
+MLB["Current"]<-0
+library(cat)
+MLB$Current<-paste(MLB$Outs,MLB$First,MLB$Second,MLB$Third,sep = "")
+
+MLB["Final"]<-0
+for (i in 1:nrow(MLB)){
+  j<-i+1
+  if (MLB$Result_Outs[i]==3){
+    MLB$Final[i]<-3000
+  }
+  else{
+    MLB$Final[i]<-MLB$Current[j]
+  }
+}
+
+#MAKES TWO WAY FREQUENCY TABLE OF TRANSITION STATES
+library(gmodels)
+events<-as.data.frame(table(MLB$Current,MLB$Final))
+names(events)<-c("Current","Final","Freq")
+aggtable<-aggregate(events$Freq,by=list(events$Current),FUN=sum)
+names(aggtable)<-c("Current","Total")
+events<-merge(events,aggtable,by="Current")
+events["Trans_Prob"]<-events$Freq/events$Total
+
+
+sub<-subset(MLB,select = c("Current","Final"))
+events<-table(sub)
+events<-table(sub)
+twentyfive<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+names(twentyfive)<-c("3000")
+twentyfive<-t(twentyfive)
+events<-rbind(events,twentyfive)
+events<-as.data.frame(events)
+
+#CONVERTS TO PROBABILITY TRANSITION MATRIX AND THEN INTO A MARKOV CHAIN
+events["Sum"]<-0
+for (i in 1:25){
+  events$Sum<-events$Sum+events[,i]
+}
+mlb.events<-events
+for (i in 1:25){
+  events[,i]<-events[,i]/events$Sum
+}
+
+events<-events[,1:25]
+test<-subset(MLB,MLB$Current=="2111"&MLB$Final=="0000")
+
+
+
+states.list<-colnames(events)
+
+events.m<-as.matrix(events)
+MC<-new("markovchain",states=states.list,byrow=T,transitionMatrix=events.m,name="MLB States")
+
+
+exp.runs<-aggregate(MLB$Runs_Scored,by=list(MLB$Current,MLB$Final),FUN=mean)
+names(exp.runs)<-c("Current","Final","Exp_Runs")
+
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+exp.table<-NA
+for (x in 1:25){
+  i<-all.states[x]
+  tot.sim.runs<-0
+  for (c in 1:10000){  
+    i<-all.states[x]
+    vec.states<-c(i)
+    iter<-0
+    current.exp.runs<-0
+    while(i!="3000"){
+
+      mci<-as.data.frame(MC[i])
+      names(mci)<-c("prob")
+      mci["min"]<-0
+      mci["max"]<-0
+      mci["choice"]<-0
+      mci$max[1]<-mci$prob[1]
+      for (j in 2:nrow(mci)){
+        k<-j-1
+        mci$min[j]<-mci$max[k]
+        mci$max[j]<-mci$min[j]+mci$prob[j]
+      }
+      mci$min<-mci$min*1000
+      mci$max<-mci$max*1000
+      #chance<-sample(1:1000,1)
+      chance<-as.numeric(runif(1,min=0,max = 1000))
+      for (a in 1:nrow(mci)){
+        if ((chance>mci$min[a]) & (chance<=mci$max[a])){
+          mci$choice[a]<-1
+          n_state<-rownames(mci[a,])
+        }
+      }
+      st.exp.runs<-subset(exp.runs,exp.runs$Current==i & exp.runs$Final==n_state)
+      current.exp.runs<-current.exp.runs+as.numeric(st.exp.runs$Exp_Runs)
+      vec.states<-c(vec.states,n_state)
+      i<-n_state
+      iter<-iter+1
+    }
+    tot.sim.runs<-tot.sim.runs+current.exp.runs
+  }
+  avg.exp.runs<-tot.sim.runs/10000  
+ 
+  row.add<-c(all.states[x],avg.exp.runs)
+  exp.table<-rbind(exp.table,row.add)
+}
+
+exp.final.events<-exp.table[-1,]
+names(exp.final.events)<-c("Current","Exp_Runs")
+
+
+
+
+######################################
+
+"Expected runs for Dodgers at bats"
+MLB["Home_Team"]<-substr(MLB$Game_ID,start = 1, stop = 3)
+LAN<-subset(MLB,(MLB$Home_Team=="LAN" & MLB$Batting_Team==1) | (MLB$Visiting_Team=="LAN" & MLB$Batting_Team==0))
+HOU<-subset(MLB,(MLB$Home_Team=="HOU" & MLB$Batting_Team==1) | (MLB$Visiting_Team=="HOU" & MLB$Batting_Team==0))
+
+
+names(LAN)<-c("Game_ID","Visiting_Team","Inning","Batting_Team","Outs","Balls","Strikes","Vistor_Score","Home_Score","Batter","Batter_Hand","Pitcher","Pitcher_Hand","First_Runner","Second_Runner","Third_Runner","Event_Text","Leadoff_Flag","PinchHit_Flag","Defensive_Position","Lineup_Position","Event_Type","Batter_Event_Flag","AB_Flag","Hit_Value","SH_Flag","SF_Flag","Outs_On_Play","RBIs_On_Play","Wild_Pitch_Flag","Passed_Ball_Flag","Num_Errors","Batter_Dest","Runner_On_1st_Dest","Runner_On_2nd_Dest","Runner_On_3rd_Dest")
+
+
+LAN["First"]<-0
+LAN["Second"]<-0
+LAN["Third"]<-0
+LAN["Runs_Scored"]<-0
+LAN["Result_Outs"]<-LAN$Outs+LAN$Outs_On_Play
+
+for (i in 1:nrow(LAN)){
+  if (LAN$First_Runner[i]!=""){
+    LAN$First[i]<-1
+  }
+  if (LAN$Second_Runner[i]!=""){
+    LAN$Second[i]<-1
+  }
+  if (LAN$Third_Runner[i]!=""){
+    LAN$Third[i]<-1
+  }
+  if (LAN$Batter_Dest[i]>=4){
+    LAN$Runs_Scored[i]<-LAN$Runs_Scored[i]+1
+  }
+  if (LAN$Runner_On_1st_Dest[i]>=4){
+    LAN$Runs_Scored[i]<-LAN$Runs_Scored[i]+1
+  }
+  if (LAN$Runner_On_2nd_Dest[i]>=4){
+    LAN$Runs_Scored[i]<-LAN$Runs_Scored[i]+1
+  }
+  if (LAN$Runner_On_3rd_Dest[i]>=4){
+    LAN$Runs_Scored[i]<-LAN$Runs_Scored[i]+1
+  }
+}
+
+
+LAN["Current"]<-0
+library(cat)
+LAN$Current<-paste(LAN$Outs,LAN$First,LAN$Second,LAN$Third,sep = "")
+
+LAN["Final"]<-0
+for (i in 1:nrow(LAN)){
+  j<-i+1
+  if (LAN$Result_Outs[i]==3){
+    LAN$Final[i]<-3000
+  }
+  else{
+    LAN$Final[i]<-LAN$Current[j]
+  }
+}
+
+
+LAN.events<-as.data.frame(table(LAN$Current,LAN$Final))
+names(LAN.events)<-c("Current","Final","Freq")
+aggtable<-aggregate(LAN.events$Freq,by=list(LAN.events$Current),FUN=sum)
+names(aggtable)<-c("Current","Total")
+LAN.events<-merge(LAN.events,aggtable,by="Current")
+LAN.events["Trans_Prob"]<-LAN.events$Freq/LAN.events$Total
+
+
+sub<-subset(LAN,select = c("Current","Final"))
+LAN.events<-table(sub)
+LAN.events<-table(sub)
+twentyfive<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+names(twentyfive)<-c("3000")
+twentyfive<-t(twentyfive)
+LAN.events<-rbind(LAN.events,twentyfive)
+LAN.events<-as.data.frame(LAN.events)
+
+LAN.events["Sum"]<-0
+for (i in 1:25){
+  LAN.events$Sum<-LAN.events$Sum+LAN.events[,i]
+}
+for (i in 1:25){
+  LAN.events[,i]<-LAN.events[,i]/LAN.events$Sum
+}
+
+LAN.events<-LAN.events[,1:25]
+test<-subset(LAN,LAN$Current=="2111"&LAN$Final=="0000")
+
+
+
+states.list<-colnames(LAN.events)
+
+LAN.events.m<-as.matrix(LAN.events)
+LAN.MC<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LAN.events.m,name="MLB States - LAN")
+
+
+
+
+LAN.exp.runs<-aggregate(LAN$Runs_Scored,by=list(LAN$Current,LAN$Final),FUN=mean)
+names(LAN.exp.runs)<-c("Current","Final","Exp_Runs")
+
+tempmerge<-merge(LAN.exp.runs,exp.runs,by=c("Current","Final"),all=T)
+for (m in 1:nrow(tempmerge)){
+  if (is.na(tempmerge$Exp_Runs.x[m])){
+    tempmerge$Exp_Runs.x[m]<-tempmerge$Exp_Runs.y[m]
+  }
+}
+tempmerge<-tempmerge[,1:3]
+LAN.exp.runs<-tempmerge
+names(LAN.exp.runs)<-c("Current","Final","Exp_Runs")
+
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+LAN.exp.table<-NA
+for (x in 1:25){
+  i<-all.states[x]
+  total.sim.runs<-0
+  for (c in 1:10000){   
+    i<-all.states[x]
+    vec.states<-c(i)
+    iter<-0
+    current.exp.runs<-0
+    while(i!="3000"){
+      
+      mci<-as.data.frame(LAN.MC[i])
+      names(mci)<-c("prob")
+      mci["min"]<-0
+      mci["max"]<-0
+      mci["choice"]<-0
+      mci$max[1]<-mci$prob[1]
+      for (j in 2:nrow(mci)){
+        k<-j-1
+        mci$min[j]<-mci$max[k]
+        mci$max[j]<-mci$min[j]+mci$prob[j]
+      }
+      mci$min<-mci$min*1000
+      mci$max<-mci$max*1000
+      #chance<-sample(1:1000,1)
+      chance<-as.numeric(runif(1,min=0,max = 1000))
+      for (a in 1:nrow(mci)){
+        if ((chance>mci$min[a]) & (chance<=mci$max[a])){
+          mci$choice[a]<-1
+          n_state<-rownames(mci[a,])
+        }
+      }
+      st.exp.runs<-subset(LAN.exp.runs,LAN.exp.runs$Current==i & LAN.exp.runs$Final==n_state)
+      current.exp.runs<-current.exp.runs+st.exp.runs$Exp_Runs
+      vec.states<-c(vec.states,n_state)
+      i<-n_state
+      iter<-iter+1
+    }
+    total.sim.runs<-total.sim.runs+current.exp.runs
+  }
+  avg.exp.runs<-total.sim.runs/10000 
+ 
+  row.add<-c(all.states[x],avg.exp.runs)
+  LAN.exp.table<-rbind(LAN.exp.table,row.add)
+}
+
+LAN.exp.final.events<-LAN.exp.table[-1,]
+names(LAN.exp.final.events)<-c("Current","Exp_Runs")
+LAN.exp.final.events<-as.data.frame(LAN.exp.final.events)
+
+######################################
+
+
+"Expected runs for Astros at bats"
+
+names(HOU)<-c("Game_ID","Visiting_Team","Inning","Batting_Team","Outs","Balls","Strikes","Vistor_Score","Home_Score","Batter","Batter_Hand","Pitcher","Pitcher_Hand","First_Runner","Second_Runner","Third_Runner","Event_Text","Leadoff_Flag","PinchHit_Flag","Defensive_Position","Lineup_Position","Event_Type","Batter_Event_Flag","AB_Flag","Hit_Value","SH_Flag","SF_Flag","Outs_On_Play","RBIs_On_Play","Wild_Pitch_Flag","Passed_Ball_Flag","Num_Errors","Batter_Dest","Runner_On_1st_Dest","Runner_On_2nd_Dest","Runner_On_3rd_Dest")
+
+
+HOU["First"]<-0
+HOU["Second"]<-0
+HOU["Third"]<-0
+HOU["Runs_Scored"]<-0
+HOU["Result_Outs"]<-HOU$Outs+HOU$Outs_On_Play
+
+for (i in 1:nrow(HOU)){
+  if (HOU$First_Runner[i]!=""){
+    HOU$First[i]<-1
+  }
+  if (HOU$Second_Runner[i]!=""){
+    HOU$Second[i]<-1
+  }
+  if (HOU$Third_Runner[i]!=""){
+    HOU$Third[i]<-1
+  }
+  if (HOU$Batter_Dest[i]>=4){
+    HOU$Runs_Scored[i]<-HOU$Runs_Scored[i]+1
+  }
+  if (HOU$Runner_On_1st_Dest[i]>=4){
+    HOU$Runs_Scored[i]<-HOU$Runs_Scored[i]+1
+  }
+  if (HOU$Runner_On_2nd_Dest[i]>=4){
+    HOU$Runs_Scored[i]<-HOU$Runs_Scored[i]+1
+  }
+  if (HOU$Runner_On_3rd_Dest[i]>=4){
+    HOU$Runs_Scored[i]<-HOU$Runs_Scored[i]+1
+  }
+}
+
+HOU["Current"]<-0
+library(cat)
+HOU$Current<-paste(HOU$Outs,HOU$First,HOU$Second,HOU$Third,sep = "")
+
+HOU["Final"]<-0
+for (i in 1:nrow(HOU)){
+  j<-i+1
+  if (HOU$Result_Outs[i]==3){
+    HOU$Final[i]<-3000
+  }
+  else{
+    HOU$Final[i]<-HOU$Current[j]
+  }
+}
+
+HOU.events<-as.data.frame(table(HOU$Current,HOU$Final))
+names(HOU.events)<-c("Current","Final","Freq")
+aggtable<-aggregate(HOU.events$Freq,by=list(HOU.events$Current),FUN=sum)
+names(aggtable)<-c("Current","Total")
+HOU.events<-merge(HOU.events,aggtable,by="Current")
+HOU.events["Trans_Prob"]<-HOU.events$Freq/HOU.events$Total
+
+
+sub<-subset(HOU,select = c("Current","Final"))
+HOU.events<-table(sub)
+HOU.events<-table(sub)
+twentyfive<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+names(twentyfive)<-c("3000")
+twentyfive<-t(twentyfive)
+HOU.events<-rbind(HOU.events,twentyfive)
+HOU.events<-as.data.frame(HOU.events)
+
+HOU.events["Sum"]<-0
+for (i in 1:25){
+  HOU.events$Sum<-HOU.events$Sum+HOU.events[,i]
+}
+for (i in 1:25){
+  HOU.events[,i]<-HOU.events[,i]/HOU.events$Sum
+}
+
+HOU.events<-HOU.events[,1:25]
+test<-subset(HOU,HOU$Current=="2111"&HOU$Final=="0000")
+
+
+
+states.list<-colnames(HOU.events)
+
+HOU.events.m<-as.matrix(HOU.events)
+HOU.MC<-new("markovchain",states=states.list,byrow=T,transitionMatrix=HOU.events.m,name="MLB States - Astros")
+
+
+
+
+HOU.exp.runs<-aggregate(HOU$Runs_Scored,by=list(HOU$Current,HOU$Final),FUN=mean)
+names(HOU.exp.runs)<-c("Current","Final","Exp_Runs")
+
+tempmerge<-merge(HOU.exp.runs,exp.runs,by=c("Current","Final"),all=T)
+for (m in 1:nrow(tempmerge)){
+  if (is.na(tempmerge$Exp_Runs.x[m])){
+    tempmerge$Exp_Runs.x[m]<-tempmerge$Exp_Runs.y[m]
+  }
+}
+tempmerge<-tempmerge[,1:3]
+HOU.exp.runs<-tempmerge
+names(HOU.exp.runs)<-c("Current","Final","Exp_Runs")
+
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+HOU.exp.table<-NA
+for (x in 1:25){
+  i<-all.states[x]
+  total.sim.runs<-0
+  for (c in 1:10000){    
+    i<-all.states[x]
+    vec.states<-c(i)
+    iter<-0
+    current.exp.runs<-0
+    while(i!="3000"){
+      
+      mci<-as.data.frame(HOU.MC[i])
+      names(mci)<-c("prob")
+      mci["min"]<-0
+      mci["max"]<-0
+      mci["choice"]<-0
+      mci$max[1]<-mci$prob[1]
+      for (j in 2:nrow(mci)){
+        k<-j-1
+        mci$min[j]<-mci$max[k]
+        mci$max[j]<-mci$min[j]+mci$prob[j]
+      }
+      mci$min<-mci$min*1000
+      mci$max<-mci$max*1000
+      #chance<-sample(1:1000,1)
+      chance<-as.numeric(runif(1,min=0,max = 1000))
+      for (a in 1:nrow(mci)){
+        if ((chance>mci$min[a]) & (chance<=mci$max[a])){
+          mci$choice[a]<-1
+          n_state<-rownames(mci[a,])
+        }
+      }
+      st.exp.runs<-subset(HOU.exp.runs,HOU.exp.runs$Current==i & HOU.exp.runs$Final==n_state)
+      current.exp.runs<-current.exp.runs+st.exp.runs$Exp_Runs
+      vec.states<-c(vec.states,n_state)
+      i<-n_state
+      iter<-iter+1
+    }
+    total.sim.runs<-total.sim.runs+current.exp.runs
+  }
+  avg.exp.runs<-total.sim.runs/10000    
+  
+  row.add<-c(all.states[x],avg.exp.runs)
+  HOU.exp.table<-rbind(HOU.exp.table,row.add)
+}
+
+HOU.exp.final.events<-HOU.exp.table[-1,]
+names(HOU.exp.final.events)<-c("Current","Exp_Runs")
+HOU.exp.final.events<-as.data.frame(HOU.exp.final.events)
+
+
+##########################################
+
+#LAN Lineup
+LANTaylor <- LAN[(LAN$Batter=='taylc001'),]
+LANSeager <- LAN[(LAN$Batter=='seagc001'),]
+LANTurner <- LAN[(LAN$Batter=='turnj001'),]
+LANBellinger <- LAN[(LAN$Batter=='bellc002'),]
+LANPuig <- LAN[(LAN$Batter=='puigy001'),]
+LANPederson <- LAN[(LAN$Batter=='pedej001'),]
+LANForsythe <- LAN[(LAN$Batter=='forsl001'),]
+LANBarnes <- LAN[(LAN$Batter=='barna001'),]
+
+
+
+#LAN players
+#Taylor 
+LANTaylorevents<-as.data.frame(table(LANTaylor$Current,LANTaylor$Final))
+names(LANTaylorevents)<-c("Current","Final","Freq") 
+LANTayloraggtable<-aggregate(LANTaylorevents$Freq,by=list(LANTaylorevents$Current),FUN=sum)
+names(LANTayloraggtable)<-c("Current","Total")
+LANTaylorevents<-merge(LANTaylorevents,LANTayloraggtable,by="Current")
+LANTaylorevents["Trans_Prob"]<-LANTaylorevents$Freq/LANTaylorevents$TOTAL
+
+
+
+LANTaylorsub<-subset(LANTaylor,select = c("Current","Final"))
+LANTaylorevents<-table(LANTaylorsub)
+LANTaylorevents<-table(LANTaylorsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANTaylorevents)==25){  
+  LANTayloremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANTaylorevents)==24){  
+  LANTayloremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANTaylorevents)==23){  
+  LANTayloremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANTaylorevents)==22){  
+  LANTayloremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANTaylorevents)==21){  
+  LANTayloremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANTaylorevents)==20){  
+  LANTayloremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANTaylorevents)==19){  
+  LANTayloremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANTayloremptyevents)<-c("3000")
+LANTayloremptyevents<-t(LANTayloremptyevents)
+LANTaylorevents<-rbind(LANTaylorevents,LANTayloremptyevents)
+LANTaylorevents<-as.data.frame(LANTaylorevents)
+LANTaylorevents<-LANTaylorevents[,1:p]
+st.col<-25-ncol(LANTaylorevents)
+st.row<-25-nrow(LANTaylorevents)
+
+while (nrow(LANTaylorevents)!=25) {
+  k<-25-nrow(LANTaylorevents)
+  x<-26-ncol(LANTaylorevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANTaylorevents<-rbind(LANTaylorevents,radd)
+  }
+}
+
+k<-25-ncol(LANTaylorevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANTaylorevents<-cbind(LANTaylorevents,cadd)
+  }
+}  
+
+
+miss.row<-all.states[!all.states %in%rownames(LANTaylorevents)]
+miss.col<-all.states[!all.states %in%colnames(LANTaylorevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANTaylorevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANTaylorevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANTaylorevents<-LANTaylorevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANTaylorevents<-LANTaylorevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+ 
+LANTaylorevents["SUM"]<-0
+for (i in 1:25){
+  LANTaylorevents$SUM<-LANTaylorevents$SUM+LANTaylorevents[,i]
+}
+
+for (w in 1:25){
+  if (LANTaylorevents$SUM[w]<3){
+    LANTaylorevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANTaylorevents<-LANTaylorevents
+for (i in 1:25){
+  LANTaylorevents[,i]<-LANTaylorevents[,i]/LANTaylorevents$SUM
+}
+
+LANTaylorevents<-LANTaylorevents[,1:25]
+LANTaylorall.state<-colnames(LANTaylorevents)
+LANTaylorevents.m<-as.matrix(LANTaylorevents)
+
+
+#Seager 
+LANSeagerevents<-as.data.frame(table(LANSeager$Current,LANSeager$Final))
+names(LANSeagerevents)<-c("Current","Final","Freq") 
+LANSeageraggtable<-aggregate(LANSeagerevents$Freq,by=list(LANSeagerevents$Current),FUN=sum)
+names(LANSeageraggtable)<-c("Current","Total")
+LANSeagerevents<-merge(LANSeagerevents,LANSeageraggtable,by="Current")
+LANSeagerevents["Trans_Prob"]<-LANSeagerevents$Freq/LANSeagerevents$TOTAL
+
+
+
+LANSeagersub<-subset(LANSeager,select = c("Current","Final"))
+LANSeagerevents<-table(LANSeagersub)
+LANSeagerevents<-table(LANSeagersub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANSeagerevents)==25){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANSeagerevents)==24){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANSeagerevents)==23){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANSeagerevents)==22){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANSeagerevents)==21){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANSeagerevents)==20){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANSeagerevents)==19){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANSeageremptyevents)<-c("3000")
+LANSeageremptyevents<-t(LANSeageremptyevents)
+LANSeagerevents<-rbind(LANSeagerevents,LANSeageremptyevents)
+LANSeagerevents<-as.data.frame(LANSeagerevents)
+LANSeagerevents<-LANSeagerevents[,1:p]
+st.col<-25-ncol(LANSeagerevents)
+st.row<-25-nrow(LANSeagerevents)
+
+while (nrow(LANSeagerevents)!=25) {
+  k<-25-nrow(LANSeagerevents)
+  x<-26-ncol(LANSeagerevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANSeagerevents<-rbind(LANSeagerevents,radd)
+  }
+}
+
+k<-25-ncol(LANSeagerevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANSeagerevents<-cbind(LANSeagerevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANSeagerevents)]
+miss.col<-all.states[!all.states %in%colnames(LANSeagerevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANSeagerevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANSeagerevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANSeagerevents<-LANSeagerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANSeagerevents<-LANSeagerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANSeagerevents["SUM"]<-0
+for (i in 1:25){
+  LANSeagerevents$SUM<-LANSeagerevents$SUM+LANSeagerevents[,i]
+}
+
+for (w in 1:25){
+  if (LANSeagerevents$SUM[w]<3){
+    LANSeagerevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANSeagerevents<-LANSeagerevents
+for (i in 1:25){
+  LANSeagerevents[,i]<-LANSeagerevents[,i]/LANSeagerevents$SUM
+}
+
+LANSeagerevents<-LANSeagerevents[,1:25]
+LANSeagerall.state<-colnames(LANSeagerevents)
+LANSeagerevents.m<-as.matrix(LANSeagerevents)
+
+
+ 
+LANSeagerevents<-as.data.frame(table(LANSeager$Current,LANSeager$Final))
+names(LANSeagerevents)<-c("Current","Final","Freq") 
+LANSeageraggtable<-aggregate(LANSeagerevents$Freq,by=list(LANSeagerevents$Current),FUN=sum)
+names(LANSeageraggtable)<-c("Current","Total")
+LANSeagerevents<-merge(LANSeagerevents,LANSeageraggtable,by="Current")
+LANSeagerevents["Trans_Prob"]<-LANSeagerevents$Freq/LANSeagerevents$TOTAL
+
+
+
+LANSeagersub<-subset(LANSeager,select = c("Current","Final"))
+LANSeagerevents<-table(LANSeagersub)
+LANSeagerevents<-table(LANSeagersub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANSeagerevents)==25){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANSeagerevents)==24){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANSeagerevents)==23){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANSeagerevents)==22){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANSeagerevents)==21){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANSeagerevents)==20){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANSeagerevents)==19){  
+  LANSeageremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANSeageremptyevents)<-c("3000")
+LANSeageremptyevents<-t(LANSeageremptyevents)
+LANSeagerevents<-rbind(LANSeagerevents,LANSeageremptyevents)
+LANSeagerevents<-as.data.frame(LANSeagerevents)
+LANSeagerevents<-LANSeagerevents[,1:p]
+st.col<-25-ncol(LANSeagerevents)
+st.row<-25-nrow(LANSeagerevents)
+
+while (nrow(LANSeagerevents)!=25) {
+  k<-25-nrow(LANSeagerevents)
+  x<-26-ncol(LANSeagerevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANSeagerevents<-rbind(LANSeagerevents,radd)
+  }
+}
+
+k<-25-ncol(LANSeagerevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANSeagerevents<-cbind(LANSeagerevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANSeagerevents)]
+miss.col<-all.states[!all.states %in%colnames(LANSeagerevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANSeagerevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANSeagerevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANSeagerevents<-LANSeagerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANSeagerevents<-LANSeagerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANSeagerevents["SUM"]<-0
+for (i in 1:25){
+  LANSeagerevents$SUM<-LANSeagerevents$SUM+LANSeagerevents[,i]
+}
+
+for (w in 1:25){
+  if (LANSeagerevents$SUM[w]<3){
+    LANSeagerevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANSeagerevents<-LANSeagerevents
+for (i in 1:25){
+  LANSeagerevents[,i]<-LANSeagerevents[,i]/LANSeagerevents$SUM
+}
+
+LANSeagerevents<-LANSeagerevents[,1:25]
+LANSeagerall.state<-colnames(LANSeagerevents)
+LANSeagerevents.m<-as.matrix(LANSeagerevents)
+
+
+
+#Turner 
+LANTurnerevents<-as.data.frame(table(LANTurner$Current,LANTurner$Final))
+names(LANTurnerevents)<-c("Current","Final","Freq") 
+LANTurneraggtable<-aggregate(LANTurnerevents$Freq,by=list(LANTurnerevents$Current),FUN=sum)
+names(LANTurneraggtable)<-c("Current","Total")
+LANTurnerevents<-merge(LANTurnerevents,LANTurneraggtable,by="Current")
+LANTurnerevents["Trans_Prob"]<-LANTurnerevents$Freq/LANTurnerevents$TOTAL
+
+
+
+LANTurnersub<-subset(LANTurner,select = c("Current","Final"))
+LANTurnerevents<-table(LANTurnersub)
+LANTurnerevents<-table(LANTurnersub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANTurnerevents)==25){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANTurnerevents)==24){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANTurnerevents)==23){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANTurnerevents)==22){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANTurnerevents)==21){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANTurnerevents)==20){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANTurnerevents)==19){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANTurneremptyevents)<-c("3000")
+LANTurneremptyevents<-t(LANTurneremptyevents)
+LANTurnerevents<-rbind(LANTurnerevents,LANTurneremptyevents)
+LANTurnerevents<-as.data.frame(LANTurnerevents)
+LANTurnerevents<-LANTurnerevents[,1:p]
+st.col<-25-ncol(LANTurnerevents)
+st.row<-25-nrow(LANTurnerevents)
+
+while (nrow(LANTurnerevents)!=25) {
+  k<-25-nrow(LANTurnerevents)
+  x<-26-ncol(LANTurnerevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANTurnerevents<-rbind(LANTurnerevents,radd)
+  }
+}
+
+k<-25-ncol(LANTurnerevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANTurnerevents<-cbind(LANTurnerevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANTurnerevents)]
+miss.col<-all.states[!all.states %in%colnames(LANTurnerevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANTurnerevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANTurnerevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANTurnerevents<-LANTurnerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANTurnerevents<-LANTurnerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANTurnerevents["SUM"]<-0
+for (i in 1:25){
+  LANTurnerevents$SUM<-LANTurnerevents$SUM+LANTurnerevents[,i]
+}
+
+for (w in 1:25){
+  if (LANTurnerevents$SUM[w]<3){
+    LANTurnerevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANTurnerevents<-LANTurnerevents
+for (i in 1:25){
+  LANTurnerevents[,i]<-LANTurnerevents[,i]/LANTurnerevents$SUM
+}
+
+LANTurnerevents<-LANTurnerevents[,1:25]
+LANTurnerall.state<-colnames(LANTurnerevents)
+LANTurnerevents.m<-as.matrix(LANTurnerevents)
+
+
+ 
+LANTurnerevents<-as.data.frame(table(LANTurner$Current,LANTurner$Final))
+names(LANTurnerevents)<-c("Current","Final","Freq") 
+LANTurneraggtable<-aggregate(LANTurnerevents$Freq,by=list(LANTurnerevents$Current),FUN=sum)
+names(LANTurneraggtable)<-c("Current","Total")
+LANTurnerevents<-merge(LANTurnerevents,LANTurneraggtable,by="Current")
+LANTurnerevents["Trans_Prob"]<-LANTurnerevents$Freq/LANTurnerevents$TOTAL
+
+
+
+LANTurnersub<-subset(LANTurner,select = c("Current","Final"))
+LANTurnerevents<-table(LANTurnersub)
+LANTurnerevents<-table(LANTurnersub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANTurnerevents)==25){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANTurnerevents)==24){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANTurnerevents)==23){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANTurnerevents)==22){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANTurnerevents)==21){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANTurnerevents)==20){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANTurnerevents)==19){  
+  LANTurneremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANTurneremptyevents)<-c("3000")
+LANTurneremptyevents<-t(LANTurneremptyevents)
+LANTurnerevents<-rbind(LANTurnerevents,LANTurneremptyevents)
+LANTurnerevents<-as.data.frame(LANTurnerevents)
+LANTurnerevents<-LANTurnerevents[,1:p]
+st.col<-25-ncol(LANTurnerevents)
+st.row<-25-nrow(LANTurnerevents)
+
+while (nrow(LANTurnerevents)!=25) {
+  k<-25-nrow(LANTurnerevents)
+  x<-26-ncol(LANTurnerevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANTurnerevents<-rbind(LANTurnerevents,radd)
+  }
+}
+
+k<-25-ncol(LANTurnerevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANTurnerevents<-cbind(LANTurnerevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANTurnerevents)]
+miss.col<-all.states[!all.states %in%colnames(LANTurnerevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANTurnerevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANTurnerevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANTurnerevents<-LANTurnerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANTurnerevents<-LANTurnerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+ 
+LANTurnerevents["SUM"]<-0
+for (i in 1:25){
+  LANTurnerevents$SUM<-LANTurnerevents$SUM+LANTurnerevents[,i]
+}
+
+for (w in 1:25){
+  if (LANTurnerevents$SUM[w]<3){
+    LANTurnerevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANTurnerevents<-LANTurnerevents
+for (i in 1:25){
+  LANTurnerevents[,i]<-LANTurnerevents[,i]/LANTurnerevents$SUM
+}
+
+LANTurnerevents<-LANTurnerevents[,1:25]
+LANTurnerall.state<-colnames(LANTurnerevents)
+LANTurnerevents.m<-as.matrix(LANTurnerevents)
+
+
+#Bellinger
+LANBellingerevents<-as.data.frame(table(LANBellinger$Current,LANBellinger$Final))
+names(LANBellingerevents)<-c("Current","Final","Freq") 
+LANBellingeraggtable<-aggregate(LANBellingerevents$Freq,by=list(LANBellingerevents$Current),FUN=sum)
+names(LANBellingeraggtable)<-c("Current","Total")
+LANBellingerevents<-merge(LANBellingerevents,LANBellingeraggtable,by="Current")
+LANBellingerevents["Trans_Prob"]<-LANBellingerevents$Freq/LANBellingerevents$TOTAL
+
+
+
+LANBellingersub<-subset(LANBellinger,select = c("Current","Final"))
+LANBellingerevents<-table(LANBellingersub)
+LANBellingerevents<-table(LANBellingersub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANBellingerevents)==25){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANBellingerevents)==24){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANBellingerevents)==23){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANBellingerevents)==22){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANBellingerevents)==21){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANBellingerevents)==20){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANBellingerevents)==19){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANBellingeremptyevents)<-c("3000")
+LANBellingeremptyevents<-t(LANBellingeremptyevents)
+LANBellingerevents<-rbind(LANBellingerevents,LANBellingeremptyevents)
+LANBellingerevents<-as.data.frame(LANBellingerevents)
+LANBellingerevents<-LANBellingerevents[,1:p]
+st.col<-25-ncol(LANBellingerevents)
+st.row<-25-nrow(LANBellingerevents)
+
+while (nrow(LANBellingerevents)!=25) {
+  k<-25-nrow(LANBellingerevents)
+  x<-26-ncol(LANBellingerevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANBellingerevents<-rbind(LANBellingerevents,radd)
+  }
+}
+
+k<-25-ncol(LANBellingerevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANBellingerevents<-cbind(LANBellingerevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANBellingerevents)]
+miss.col<-all.states[!all.states %in%colnames(LANBellingerevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANBellingerevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANBellingerevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANBellingerevents<-LANBellingerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANBellingerevents<-LANBellingerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+#reformat as transition probability matrix 
+LANBellingerevents["SUM"]<-0
+for (i in 1:25){
+  LANBellingerevents$SUM<-LANBellingerevents$SUM+LANBellingerevents[,i]
+}
+
+for (w in 1:25){
+  if (LANBellingerevents$SUM[w]<3){
+    LANBellingerevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANBellingerevents<-LANBellingerevents
+for (i in 1:25){
+  LANBellingerevents[,i]<-LANBellingerevents[,i]/LANBellingerevents$SUM
+}
+
+LANBellingerevents<-LANBellingerevents[,1:25]
+LANBellingerall.state<-colnames(LANBellingerevents)
+LANBellingerevents.m<-as.matrix(LANBellingerevents)
+
+
+
+LANBellingerevents<-as.data.frame(table(LANBellinger$Current,LANBellinger$Final))
+names(LANBellingerevents)<-c("Current","Final","Freq") 
+LANBellingeraggtable<-aggregate(LANBellingerevents$Freq,by=list(LANBellingerevents$Current),FUN=sum)
+names(LANBellingeraggtable)<-c("Current","Total")
+LANBellingerevents<-merge(LANBellingerevents,LANBellingeraggtable,by="Current")
+LANBellingerevents["Trans_Prob"]<-LANBellingerevents$Freq/LANBellingerevents$TOTAL
+
+
+
+LANBellingersub<-subset(LANBellinger,select = c("Current","Final"))
+LANBellingerevents<-table(LANBellingersub)
+LANBellingerevents<-table(LANBellingersub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANBellingerevents)==25){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANBellingerevents)==24){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANBellingerevents)==23){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANBellingerevents)==22){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANBellingerevents)==21){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANBellingerevents)==20){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANBellingerevents)==19){  
+  LANBellingeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANBellingeremptyevents)<-c("3000")
+LANBellingeremptyevents<-t(LANBellingeremptyevents)
+LANBellingerevents<-rbind(LANBellingerevents,LANBellingeremptyevents)
+LANBellingerevents<-as.data.frame(LANBellingerevents)
+LANBellingerevents<-LANBellingerevents[,1:p]
+st.col<-25-ncol(LANBellingerevents)
+st.row<-25-nrow(LANBellingerevents)
+
+while (nrow(LANBellingerevents)!=25) {
+  k<-25-nrow(LANBellingerevents)
+  x<-26-ncol(LANBellingerevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANBellingerevents<-rbind(LANBellingerevents,radd)
+  }
+}
+
+k<-25-ncol(LANBellingerevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANBellingerevents<-cbind(LANBellingerevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANBellingerevents)]
+miss.col<-all.states[!all.states %in%colnames(LANBellingerevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANBellingerevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANBellingerevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANBellingerevents<-LANBellingerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANBellingerevents<-LANBellingerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+#reformat as transition probability matrix 
+LANBellingerevents["SUM"]<-0
+for (i in 1:25){
+  LANBellingerevents$SUM<-LANBellingerevents$SUM+LANBellingerevents[,i]
+}
+
+for (w in 1:25){
+  if (LANBellingerevents$SUM[w]<3){
+    LANBellingerevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANBellingerevents<-LANBellingerevents
+for (i in 1:25){
+  LANBellingerevents[,i]<-LANBellingerevents[,i]/LANBellingerevents$SUM
+}
+
+LANBellingerevents<-LANBellingerevents[,1:25]
+LANBellingerall.state<-colnames(LANBellingerevents)
+LANBellingerevents.m<-as.matrix(LANBellingerevents)
+
+
+#Puig  
+LANPuigevents<-as.data.frame(table(LANPuig$Current,LANPuig$Final))
+names(LANPuigevents)<-c("Current","Final","Freq") 
+LANPuigaggtable<-aggregate(LANPuigevents$Freq,by=list(LANPuigevents$Current),FUN=sum)
+names(LANPuigaggtable)<-c("Current","Total")
+LANPuigevents<-merge(LANPuigevents,LANPuigaggtable,by="Current")
+LANPuigevents["Trans_Prob"]<-LANPuigevents$Freq/LANPuigevents$TOTAL
+
+
+LANPuigsub<-subset(LANPuig,select = c("Current","Final"))
+LANPuigevents<-table(LANPuigsub)
+LANPuigevents<-table(LANPuigsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANPuigevents)==25){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANPuigevents)==24){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANPuigevents)==23){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANPuigevents)==22){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANPuigevents)==21){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANPuigevents)==20){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANPuigevents)==19){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANPuigemptyevents)<-c("3000")
+LANPuigemptyevents<-t(LANPuigemptyevents)
+LANPuigevents<-rbind(LANPuigevents,LANPuigemptyevents)
+LANPuigevents<-as.data.frame(LANPuigevents)
+LANPuigevents<-LANPuigevents[,1:p]
+st.col<-25-ncol(LANPuigevents)
+st.row<-25-nrow(LANPuigevents)
+
+while (nrow(LANPuigevents)!=25) {
+  k<-25-nrow(LANPuigevents)
+  x<-26-ncol(LANPuigevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANPuigevents<-rbind(LANPuigevents,radd)
+  }
+}
+
+k<-25-ncol(LANPuigevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANPuigevents<-cbind(LANPuigevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANPuigevents)]
+miss.col<-all.states[!all.states %in%colnames(LANPuigevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANPuigevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANPuigevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANPuigevents<-LANPuigevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANPuigevents<-LANPuigevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANPuigevents["SUM"]<-0
+for (i in 1:25){
+  LANPuigevents$SUM<-LANPuigevents$SUM+LANPuigevents[,i]
+}
+
+for (w in 1:25){
+  if (LANPuigevents$SUM[w]<3){
+    LANPuigevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANPuigevents<-LANPuigevents
+for (i in 1:25){
+  LANPuigevents[,i]<-LANPuigevents[,i]/LANPuigevents$SUM
+}
+
+LANPuigevents<-LANPuigevents[,1:25]
+LANPuigall.state<-colnames(LANPuigevents)
+LANPuigevents.m<-as.matrix(LANPuigevents)
+
+
+
+LANPuigevents<-as.data.frame(table(LANPuig$Current,LANPuig$Final))
+names(LANPuigevents)<-c("Current","Final","Freq") 
+LANPuigaggtable<-aggregate(LANPuigevents$Freq,by=list(LANPuigevents$Current),FUN=sum)
+names(LANPuigaggtable)<-c("Current","Total")
+LANPuigevents<-merge(LANPuigevents,LANPuigaggtable,by="Current")
+LANPuigevents["Trans_Prob"]<-LANPuigevents$Freq/LANPuigevents$TOTAL
+
+
+
+LANPuigsub<-subset(LANPuig,select = c("Current","Final"))
+LANPuigevents<-table(LANPuigsub)
+LANPuigevents<-table(LANPuigsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANPuigevents)==25){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANPuigevents)==24){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANPuigevents)==23){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANPuigevents)==22){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANPuigevents)==21){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANPuigevents)==20){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANPuigevents)==19){  
+  LANPuigemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANPuigemptyevents)<-c("3000")
+LANPuigemptyevents<-t(LANPuigemptyevents)
+LANPuigevents<-rbind(LANPuigevents,LANPuigemptyevents)
+LANPuigevents<-as.data.frame(LANPuigevents)
+LANPuigevents<-LANPuigevents[,1:p]
+st.col<-25-ncol(LANPuigevents)
+st.row<-25-nrow(LANPuigevents)
+
+while (nrow(LANPuigevents)!=25) {
+  k<-25-nrow(LANPuigevents)
+  x<-26-ncol(LANPuigevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANPuigevents<-rbind(LANPuigevents,radd)
+  }
+}
+
+k<-25-ncol(LANPuigevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANPuigevents<-cbind(LANPuigevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANPuigevents)]
+miss.col<-all.states[!all.states %in%colnames(LANPuigevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANPuigevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANPuigevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANPuigevents<-LANPuigevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANPuigevents<-LANPuigevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANPuigevents["SUM"]<-0
+for (i in 1:25){
+  LANPuigevents$SUM<-LANPuigevents$SUM+LANPuigevents[,i]
+}
+
+for (w in 1:25){
+  if (LANPuigevents$SUM[w]<3){
+    LANPuigevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANPuigevents<-LANPuigevents
+for (i in 1:25){
+  LANPuigevents[,i]<-LANPuigevents[,i]/LANPuigevents$SUM
+}
+
+LANPuigevents<-LANPuigevents[,1:25]
+LANPuigall.state<-colnames(LANPuigevents)
+LANPuigevents.m<-as.matrix(LANPuigevents)
+
+
+
+#Pederson  
+LANPedersonevents<-as.data.frame(table(LANPederson$Current,LANPederson$Final))
+names(LANPedersonevents)<-c("Current","Final","Freq") 
+LANPedersonaggtable<-aggregate(LANPedersonevents$Freq,by=list(LANPedersonevents$Current),FUN=sum)
+names(LANPedersonaggtable)<-c("Current","Total")
+LANPedersonevents<-merge(LANPedersonevents,LANPedersonaggtable,by="Current")
+LANPedersonevents["Trans_Prob"]<-LANPedersonevents$Freq/LANPedersonevents$TOTAL
+
+
+
+LANPedersonsub<-subset(LANPederson,select = c("Current","Final"))
+LANPedersonevents<-table(LANPedersonsub)
+LANPedersonevents<-table(LANPedersonsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANPedersonevents)==25){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANPedersonevents)==24){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANPedersonevents)==23){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANPedersonevents)==22){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANPedersonevents)==21){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANPedersonevents)==20){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANPedersonevents)==19){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANPedersonemptyevents)<-c("3000")
+LANPedersonemptyevents<-t(LANPedersonemptyevents)
+LANPedersonevents<-rbind(LANPedersonevents,LANPedersonemptyevents)
+LANPedersonevents<-as.data.frame(LANPedersonevents)
+LANPedersonevents<-LANPedersonevents[,1:p]
+st.col<-25-ncol(LANPedersonevents)
+st.row<-25-nrow(LANPedersonevents)
+
+while (nrow(LANPedersonevents)!=25) {
+  k<-25-nrow(LANPedersonevents)
+  x<-26-ncol(LANPedersonevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANPedersonevents<-rbind(LANPedersonevents,radd)
+  }
+}
+
+k<-25-ncol(LANPedersonevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANPedersonevents<-cbind(LANPedersonevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANPedersonevents)]
+miss.col<-all.states[!all.states %in%colnames(LANPedersonevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANPedersonevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANPedersonevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANPedersonevents<-LANPedersonevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANPedersonevents<-LANPedersonevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANPedersonevents["SUM"]<-0
+for (i in 1:25){
+  LANPedersonevents$SUM<-LANPedersonevents$SUM+LANPedersonevents[,i]
+}
+
+for (w in 1:25){
+  if (LANPedersonevents$SUM[w]<3){
+    LANPedersonevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANPedersonevents<-LANPedersonevents
+for (i in 1:25){
+  LANPedersonevents[,i]<-LANPedersonevents[,i]/LANPedersonevents$SUM
+}
+
+LANPedersonevents<-LANPedersonevents[,1:25]
+LANPedersonall.state<-colnames(LANPedersonevents)
+LANPedersonevents.m<-as.matrix(LANPedersonevents)
+
+
+
+LANPedersonevents<-as.data.frame(table(LANPederson$Current,LANPederson$Final))
+names(LANPedersonevents)<-c("Current","Final","Freq") 
+LANPedersonaggtable<-aggregate(LANPedersonevents$Freq,by=list(LANPedersonevents$Current),FUN=sum)
+names(LANPedersonaggtable)<-c("Current","Total")
+LANPedersonevents<-merge(LANPedersonevents,LANPedersonaggtable,by="Current")
+LANPedersonevents["Trans_Prob"]<-LANPedersonevents$Freq/LANPedersonevents$TOTAL
+
+
+
+LANPedersonsub<-subset(LANPederson,select = c("Current","Final"))
+LANPedersonevents<-table(LANPedersonsub)
+LANPedersonevents<-table(LANPedersonsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANPedersonevents)==25){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANPedersonevents)==24){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANPedersonevents)==23){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANPedersonevents)==22){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANPedersonevents)==21){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANPedersonevents)==20){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANPedersonevents)==19){  
+  LANPedersonemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANPedersonemptyevents)<-c("3000")
+LANPedersonemptyevents<-t(LANPedersonemptyevents)
+LANPedersonevents<-rbind(LANPedersonevents,LANPedersonemptyevents)
+LANPedersonevents<-as.data.frame(LANPedersonevents)
+LANPedersonevents<-LANPedersonevents[,1:p]
+st.col<-25-ncol(LANPedersonevents)
+st.row<-25-nrow(LANPedersonevents)
+
+while (nrow(LANPedersonevents)!=25) {
+  k<-25-nrow(LANPedersonevents)
+  x<-26-ncol(LANPedersonevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANPedersonevents<-rbind(LANPedersonevents,radd)
+  }
+}
+
+k<-25-ncol(LANPedersonevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANPedersonevents<-cbind(LANPedersonevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANPedersonevents)]
+miss.col<-all.states[!all.states %in%colnames(LANPedersonevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANPedersonevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANPedersonevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANPedersonevents<-LANPedersonevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANPedersonevents<-LANPedersonevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+LANPedersonevents["SUM"]<-0
+for (i in 1:25){
+  LANPedersonevents$SUM<-LANPedersonevents$SUM+LANPedersonevents[,i]
+}
+
+for (w in 1:25){
+  if (LANPedersonevents$SUM[w]<3){
+    LANPedersonevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANPedersonevents<-LANPedersonevents
+for (i in 1:25){
+  LANPedersonevents[,i]<-LANPedersonevents[,i]/LANPedersonevents$SUM
+}
+
+LANPedersonevents<-LANPedersonevents[,1:25]
+LANPedersonall.state<-colnames(LANPedersonevents)
+LANPedersonevents.m<-as.matrix(LANPedersonevents)
+
+
+
+
+
+
+
+
+#Forsythe  
+LANForsytheevents<-as.data.frame(table(LANForsythe$Current,LANForsythe$Final))
+names(LANForsytheevents)<-c("Current","Final","Freq") 
+LANForsytheaggtable<-aggregate(LANForsytheevents$Freq,by=list(LANForsytheevents$Current),FUN=sum)
+names(LANForsytheaggtable)<-c("Current","Total")
+LANForsytheevents<-merge(LANForsytheevents,LANForsytheaggtable,by="Current")
+LANForsytheevents["Trans_Prob"]<-LANForsytheevents$Freq/LANForsytheevents$TOTAL
+
+
+
+LANForsythesub<-subset(LANForsythe,select = c("Current","Final"))
+LANForsytheevents<-table(LANForsythesub)
+LANForsytheevents<-table(LANForsythesub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANForsytheevents)==25){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANForsytheevents)==24){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANForsytheevents)==23){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANForsytheevents)==22){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANForsytheevents)==21){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANForsytheevents)==20){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANForsytheevents)==19){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANForsytheemptyevents)<-c("3000")
+LANForsytheemptyevents<-t(LANForsytheemptyevents)
+LANForsytheevents<-rbind(LANForsytheevents,LANForsytheemptyevents)
+LANForsytheevents<-as.data.frame(LANForsytheevents)
+LANForsytheevents<-LANForsytheevents[,1:p]
+st.col<-25-ncol(LANForsytheevents)
+st.row<-25-nrow(LANForsytheevents)
+
+while (nrow(LANForsytheevents)!=25) {
+  k<-25-nrow(LANForsytheevents)
+  x<-26-ncol(LANForsytheevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANForsytheevents<-rbind(LANForsytheevents,radd)
+  }
+}
+
+k<-25-ncol(LANForsytheevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANForsytheevents<-cbind(LANForsytheevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANForsytheevents)]
+miss.col<-all.states[!all.states %in%colnames(LANForsytheevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANForsytheevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANForsytheevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANForsytheevents<-LANForsytheevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANForsytheevents<-LANForsytheevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANForsytheevents["SUM"]<-0
+for (i in 1:25){
+  LANForsytheevents$SUM<-LANForsytheevents$SUM+LANForsytheevents[,i]
+}
+
+for (w in 1:25){
+  if (LANForsytheevents$SUM[w]<3){
+    LANForsytheevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANForsytheevents<-LANForsytheevents
+for (i in 1:25){
+  LANForsytheevents[,i]<-LANForsytheevents[,i]/LANForsytheevents$SUM
+}
+
+LANForsytheevents<-LANForsytheevents[,1:25]
+LANForsytheall.state<-colnames(LANForsytheevents)
+LANForsytheevents.m<-as.matrix(LANForsytheevents)
+
+
+ 
+LANForsytheevents<-as.data.frame(table(LANForsythe$Current,LANForsythe$Final))
+names(LANForsytheevents)<-c("Current","Final","Freq") 
+LANForsytheaggtable<-aggregate(LANForsytheevents$Freq,by=list(LANForsytheevents$Current),FUN=sum)
+names(LANForsytheaggtable)<-c("Current","Total")
+LANForsytheevents<-merge(LANForsytheevents,LANForsytheaggtable,by="Current")
+LANForsytheevents["Trans_Prob"]<-LANForsytheevents$Freq/LANForsytheevents$TOTAL
+
+
+
+LANForsythesub<-subset(LANForsythe,select = c("Current","Final"))
+LANForsytheevents<-table(LANForsythesub)
+LANForsytheevents<-table(LANForsythesub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANForsytheevents)==25){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANForsytheevents)==24){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANForsytheevents)==23){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANForsytheevents)==22){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANForsytheevents)==21){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANForsytheevents)==20){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANForsytheevents)==19){  
+  LANForsytheemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANForsytheemptyevents)<-c("3000")
+LANForsytheemptyevents<-t(LANForsytheemptyevents)
+LANForsytheevents<-rbind(LANForsytheevents,LANForsytheemptyevents)
+LANForsytheevents<-as.data.frame(LANForsytheevents)
+LANForsytheevents<-LANForsytheevents[,1:p]
+st.col<-25-ncol(LANForsytheevents)
+st.row<-25-nrow(LANForsytheevents)
+
+while (nrow(LANForsytheevents)!=25) {
+  k<-25-nrow(LANForsytheevents)
+  x<-26-ncol(LANForsytheevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANForsytheevents<-rbind(LANForsytheevents,radd)
+  }
+}
+
+k<-25-ncol(LANForsytheevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANForsytheevents<-cbind(LANForsytheevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANForsytheevents)]
+miss.col<-all.states[!all.states %in%colnames(LANForsytheevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANForsytheevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANForsytheevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANForsytheevents<-LANForsytheevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANForsytheevents<-LANForsytheevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+ 
+LANForsytheevents["SUM"]<-0
+for (i in 1:25){
+  LANForsytheevents$SUM<-LANForsytheevents$SUM+LANForsytheevents[,i]
+}
+
+for (w in 1:25){
+  if (LANForsytheevents$SUM[w]<3){
+    LANForsytheevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANForsytheevents<-LANForsytheevents
+for (i in 1:25){
+  LANForsytheevents[,i]<-LANForsytheevents[,i]/LANForsytheevents$SUM
+}
+
+LANForsytheevents<-LANForsytheevents[,1:25]
+LANForsytheall.state<-colnames(LANForsytheevents)
+LANForsytheevents.m<-as.matrix(LANForsytheevents)
+
+
+#Barnes  
+LANBarnesevents<-as.data.frame(table(LANBarnes$Current,LANBarnes$Final))
+names(LANBarnesevents)<-c("Current","Final","Freq") 
+LANBarnesaggtable<-aggregate(LANBarnesevents$Freq,by=list(LANBarnesevents$Current),FUN=sum)
+names(LANBarnesaggtable)<-c("Current","Total")
+LANBarnesevents<-merge(LANBarnesevents,LANBarnesaggtable,by="Current")
+LANBarnesevents["Trans_Prob"]<-LANBarnesevents$Freq/LANBarnesevents$TOTAL
+
+
+
+LANBarnessub<-subset(LANBarnes,select = c("Current","Final"))
+LANBarnesevents<-table(LANBarnessub)
+LANBarnesevents<-table(LANBarnessub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANBarnesevents)==25){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANBarnesevents)==24){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANBarnesevents)==23){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANBarnesevents)==22){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANBarnesevents)==21){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANBarnesevents)==20){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANBarnesevents)==19){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANBarnesemptyevents)<-c("3000")
+LANBarnesemptyevents<-t(LANBarnesemptyevents)
+LANBarnesevents<-rbind(LANBarnesevents,LANBarnesemptyevents)
+LANBarnesevents<-as.data.frame(LANBarnesevents)
+LANBarnesevents<-LANBarnesevents[,1:p]
+st.col<-25-ncol(LANBarnesevents)
+st.row<-25-nrow(LANBarnesevents)
+
+while (nrow(LANBarnesevents)!=25) {
+  k<-25-nrow(LANBarnesevents)
+  x<-26-ncol(LANBarnesevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANBarnesevents<-rbind(LANBarnesevents,radd)
+  }
+}
+
+k<-25-ncol(LANBarnesevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANBarnesevents<-cbind(LANBarnesevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANBarnesevents)]
+miss.col<-all.states[!all.states %in%colnames(LANBarnesevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANBarnesevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANBarnesevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANBarnesevents<-LANBarnesevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANBarnesevents<-LANBarnesevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANBarnesevents["SUM"]<-0
+for (i in 1:25){
+  LANBarnesevents$SUM<-LANBarnesevents$SUM+LANBarnesevents[,i]
+}
+
+for (w in 1:25){
+  if (LANBarnesevents$SUM[w]<3){
+    LANBarnesevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANBarnesevents<-LANBarnesevents
+for (i in 1:25){
+  LANBarnesevents[,i]<-LANBarnesevents[,i]/LANBarnesevents$SUM
+}
+
+LANBarnesevents<-LANBarnesevents[,1:25]
+LANBarnesall.state<-colnames(LANBarnesevents)
+LANBarnesevents.m<-as.matrix(LANBarnesevents)
+
+
+
+LANBarnesevents<-as.data.frame(table(LANBarnes$Current,LANBarnes$Final))
+names(LANBarnesevents)<-c("Current","Final","Freq") 
+LANBarnesaggtable<-aggregate(LANBarnesevents$Freq,by=list(LANBarnesevents$Current),FUN=sum)
+names(LANBarnesaggtable)<-c("Current","Total")
+LANBarnesevents<-merge(LANBarnesevents,LANBarnesaggtable,by="Current")
+LANBarnesevents["Trans_Prob"]<-LANBarnesevents$Freq/LANBarnesevents$TOTAL
+
+
+LANBarnessub<-subset(LANBarnes,select = c("Current","Final"))
+LANBarnesevents<-table(LANBarnessub)
+LANBarnesevents<-table(LANBarnessub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(LANBarnesevents)==25){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(LANBarnesevents)==24){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(LANBarnesevents)==23){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(LANBarnesevents)==22){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(LANBarnesevents)==21){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(LANBarnesevents)==20){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(LANBarnesevents)==19){  
+  LANBarnesemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(LANBarnesemptyevents)<-c("3000")
+LANBarnesemptyevents<-t(LANBarnesemptyevents)
+LANBarnesevents<-rbind(LANBarnesevents,LANBarnesemptyevents)
+LANBarnesevents<-as.data.frame(LANBarnesevents)
+LANBarnesevents<-LANBarnesevents[,1:p]
+st.col<-25-ncol(LANBarnesevents)
+st.row<-25-nrow(LANBarnesevents)
+
+while (nrow(LANBarnesevents)!=25) {
+  k<-25-nrow(LANBarnesevents)
+  x<-26-ncol(LANBarnesevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    LANBarnesevents<-rbind(LANBarnesevents,radd)
+  }
+}
+
+k<-25-ncol(LANBarnesevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    LANBarnesevents<-cbind(LANBarnesevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(LANBarnesevents)]
+miss.col<-all.states[!all.states %in%colnames(LANBarnesevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(LANBarnesevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(LANBarnesevents)[26-b]<-miss.col[b]
+  }
+}
+
+LANBarnesevents<-LANBarnesevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+LANBarnesevents<-LANBarnesevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+LANBarnesevents["SUM"]<-0
+for (i in 1:25){
+  LANBarnesevents$SUM<-LANBarnesevents$SUM+LANBarnesevents[,i]
+}
+
+for (w in 1:25){
+  if (LANBarnesevents$SUM[w]<3){
+    LANBarnesevents[w,]<-mlb.events[w,]
+  }
+}
+
+LANBarnesevents<-LANBarnesevents
+for (i in 1:25){
+  LANBarnesevents[,i]<-LANBarnesevents[,i]/LANBarnesevents$SUM
+}
+
+LANBarnesevents<-LANBarnesevents[,1:25]
+LANBarnesall.state<-colnames(LANBarnesevents)
+LANBarnesevents.m<-as.matrix(LANBarnesevents)
+
+
+
+#HOU Lineup
+HOUAltuve <- HOU[(HOU$Batter=='altuj001'),]
+HOUBregman <- HOU[(HOU$Batter=='brega001'),]
+HOUCorrea <- HOU[(HOU$Batter=='corrc001'),]
+HOUGonzalez <- HOU[(HOU$Batter=='gonzm002'),]
+HOUGurriel <- HOU[(HOU$Batter=='gurry001'),]
+HOUMcCann <- HOU[(HOU$Batter=='mccab002'),]
+HOUReddick <- HOU[(HOU$Batter=='reddj001'),]
+HOUSpringer <- HOU[(HOU$Batter=='sprig001'),]   
+
+
+"Houston Players"
+
+#Altuve 
+HOUAltuveevents<-as.data.frame(table(HOUAltuve$Current,HOUAltuve$Final))
+names(HOUAltuveevents)<-c("Current","Final","Freq") 
+HOUAltuveaggtable<-aggregate(HOUAltuveevents$Freq,by=list(HOUAltuveevents$Current),FUN=sum)
+names(HOUAltuveaggtable)<-c("Current","Total")
+HOUAltuveevents<-merge(HOUAltuveevents,HOUAltuveaggtable,by="Current")
+HOUAltuveevents["Trans_Prob"]<-HOUAltuveevents$Freq/HOUAltuveevents$TOTAL
+
+
+HOUAltuvesub<-subset(HOUAltuve,select = c("Current","Final"))
+HOUAltuveevents<-table(HOUAltuvesub)
+HOUAltuveevents<-table(HOUAltuvesub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUAltuveevents)==25){  
+  HOUAltuveemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUAltuveevents)==24){  
+  HOUAltuveemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUAltuveevents)==23){  
+  HOUAltuveemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUAltuveevents)==22){  
+  HOUAltuveemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUAltuveevents)==21){  
+  HOUAltuveemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUAltuveevents)==20){  
+  HOUAltuveemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUAltuveevents)==19){  
+  HOUAltuveemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUAltuveemptyevents)<-c("3000")
+HOUAltuveemptyevents<-t(HOUAltuveemptyevents)
+HOUAltuveevents<-rbind(HOUAltuveevents,HOUAltuveemptyevents)
+HOUAltuveevents<-as.data.frame(HOUAltuveevents)
+HOUAltuveevents<-HOUAltuveevents[,1:p]
+st.col<-25-ncol(HOUAltuveevents)
+st.row<-25-nrow(HOUAltuveevents)
+
+while (nrow(HOUAltuveevents)!=25) {
+  k<-25-nrow(HOUAltuveevents)
+  x<-26-ncol(HOUAltuveevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUAltuveevents<-rbind(HOUAltuveevents,radd)
+  }
+}
+
+k<-25-ncol(HOUAltuveevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUAltuveevents<-cbind(HOUAltuveevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUAltuveevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUAltuveevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUAltuveevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUAltuveevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUAltuveevents<-HOUAltuveevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUAltuveevents<-HOUAltuveevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUAltuveevents["SUM"]<-0
+for (i in 1:25){
+  HOUAltuveevents$SUM<-HOUAltuveevents$SUM+HOUAltuveevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUAltuveevents$SUM[w]<3){
+    HOUAltuveevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUAltuveevents<-HOUAltuveevents
+for (i in 1:25){
+  HOUAltuveevents[,i]<-HOUAltuveevents[,i]/HOUAltuveevents$SUM
+}
+
+HOUAltuveevents<-HOUAltuveevents[,1:25]
+HOUAltuveall.state<-colnames(HOUAltuveevents)
+HOUAltuveevents.m<-as.matrix(HOUAltuveevents)
+
+ 
+HOUBregmanevents<-as.data.frame(table(HOUBregman$Current,HOUBregman$Final))
+names(HOUBregmanevents)<-c("Current","Final","Freq") 
+HOUBregmanaggtable<-aggregate(HOUBregmanevents$Freq,by=list(HOUBregmanevents$Current),FUN=sum)
+names(HOUBregmanaggtable)<-c("Current","Total")
+HOUBregmanevents<-merge(HOUBregmanevents,HOUBregmanaggtable,by="Current")
+HOUBregmanevents["Trans_Prob"]<-HOUBregmanevents$Freq/HOUBregmanevents$TOTAL
+
+
+
+HOUBregmansub<-subset(HOUBregman,select = c("Current","Final"))
+HOUBregmanevents<-table(HOUBregmansub)
+HOUBregmanevents<-table(HOUBregmansub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUBregmanevents)==25){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUBregmanevents)==24){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUBregmanevents)==23){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUBregmanevents)==22){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUBregmanevents)==21){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUBregmanevents)==20){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUBregmanevents)==19){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUBregmanemptyevents)<-c("3000")
+HOUBregmanemptyevents<-t(HOUBregmanemptyevents)
+HOUBregmanevents<-rbind(HOUBregmanevents,HOUBregmanemptyevents)
+HOUBregmanevents<-as.data.frame(HOUBregmanevents)
+HOUBregmanevents<-HOUBregmanevents[,1:p]
+st.col<-25-ncol(HOUBregmanevents)
+st.row<-25-nrow(HOUBregmanevents)
+
+while (nrow(HOUBregmanevents)!=25) {
+  k<-25-nrow(HOUBregmanevents)
+  x<-26-ncol(HOUBregmanevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUBregmanevents<-rbind(HOUBregmanevents,radd)
+  }
+}
+
+k<-25-ncol(HOUBregmanevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUBregmanevents<-cbind(HOUBregmanevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUBregmanevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUBregmanevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUBregmanevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUBregmanevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUBregmanevents<-HOUBregmanevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUBregmanevents<-HOUBregmanevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUBregmanevents["SUM"]<-0
+for (i in 1:25){
+  HOUBregmanevents$SUM<-HOUBregmanevents$SUM+HOUBregmanevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUBregmanevents$SUM[w]<3){
+    HOUBregmanevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUBregmanevents<-HOUBregmanevents
+for (i in 1:25){
+  HOUBregmanevents[,i]<-HOUBregmanevents[,i]/HOUBregmanevents$SUM
+}
+
+HOUBregmanevents<-HOUBregmanevents[,1:25]
+HOUBregmanall.state<-colnames(HOUBregmanevents)
+HOUBregmanevents.m<-as.matrix(HOUBregmanevents)
+
+
+
+
+HOUBregmanevents<-as.data.frame(table(HOUBregman$Current,HOUBregman$Final))
+names(HOUBregmanevents)<-c("Current","Final","Freq") 
+HOUBregmanaggtable<-aggregate(HOUBregmanevents$Freq,by=list(HOUBregmanevents$Current),FUN=sum)
+names(HOUBregmanaggtable)<-c("Current","Total")
+HOUBregmanevents<-merge(HOUBregmanevents,HOUBregmanaggtable,by="Current")
+HOUBregmanevents["Trans_Prob"]<-HOUBregmanevents$Freq/HOUBregmanevents$TOTAL
+
+
+
+HOUBregmansub<-subset(HOUBregman,select = c("Current","Final"))
+HOUBregmanevents<-table(HOUBregmansub)
+HOUBregmanevents<-table(HOUBregmansub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUBregmanevents)==25){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUBregmanevents)==24){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUBregmanevents)==23){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUBregmanevents)==22){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUBregmanevents)==21){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUBregmanevents)==20){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUBregmanevents)==19){  
+  HOUBregmanemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUBregmanemptyevents)<-c("3000")
+HOUBregmanemptyevents<-t(HOUBregmanemptyevents)
+HOUBregmanevents<-rbind(HOUBregmanevents,HOUBregmanemptyevents)
+HOUBregmanevents<-as.data.frame(HOUBregmanevents)
+HOUBregmanevents<-HOUBregmanevents[,1:p]
+st.col<-25-ncol(HOUBregmanevents)
+st.row<-25-nrow(HOUBregmanevents)
+
+while (nrow(HOUBregmanevents)!=25) {
+  k<-25-nrow(HOUBregmanevents)
+  x<-26-ncol(HOUBregmanevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUBregmanevents<-rbind(HOUBregmanevents,radd)
+  }
+}
+
+k<-25-ncol(HOUBregmanevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUBregmanevents<-cbind(HOUBregmanevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUBregmanevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUBregmanevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUBregmanevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUBregmanevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUBregmanevents<-HOUBregmanevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUBregmanevents<-HOUBregmanevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+HOUBregmanevents["SUM"]<-0
+for (i in 1:25){
+  HOUBregmanevents$SUM<-HOUBregmanevents$SUM+HOUBregmanevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUBregmanevents$SUM[w]<3){
+    HOUBregmanevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUBregmanevents<-HOUBregmanevents
+for (i in 1:25){
+  HOUBregmanevents[,i]<-HOUBregmanevents[,i]/HOUBregmanevents$SUM
+}
+
+HOUBregmanevents<-HOUBregmanevents[,1:25]
+HOUBregmanall.state<-colnames(HOUBregmanevents)
+HOUBregmanevents.m<-as.matrix(HOUBregmanevents)
+
+
+
+
+#Correa  
+HOUCorreaevents<-as.data.frame(table(HOUCorrea$Current,HOUCorrea$Final))
+names(HOUCorreaevents)<-c("Current","Final","Freq") 
+HOUCorreaaggtable<-aggregate(HOUCorreaevents$Freq,by=list(HOUCorreaevents$Current),FUN=sum)
+names(HOUCorreaaggtable)<-c("Current","Total")
+HOUCorreaevents<-merge(HOUCorreaevents,HOUCorreaaggtable,by="Current")
+HOUCorreaevents["Trans_Prob"]<-HOUCorreaevents$Freq/HOUCorreaevents$TOTAL
+
+
+
+HOUCorreasub<-subset(HOUCorrea,select = c("Current","Final"))
+HOUCorreaevents<-table(HOUCorreasub)
+HOUCorreaevents<-table(HOUCorreasub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUCorreaevents)==25){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUCorreaevents)==24){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUCorreaevents)==23){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUCorreaevents)==22){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUCorreaevents)==21){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUCorreaevents)==20){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUCorreaevents)==19){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUCorreaemptyevents)<-c("3000")
+HOUCorreaemptyevents<-t(HOUCorreaemptyevents)
+HOUCorreaevents<-rbind(HOUCorreaevents,HOUCorreaemptyevents)
+HOUCorreaevents<-as.data.frame(HOUCorreaevents)
+HOUCorreaevents<-HOUCorreaevents[,1:p]
+st.col<-25-ncol(HOUCorreaevents)
+st.row<-25-nrow(HOUCorreaevents)
+
+while (nrow(HOUCorreaevents)!=25) {
+  k<-25-nrow(HOUCorreaevents)
+  x<-26-ncol(HOUCorreaevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUCorreaevents<-rbind(HOUCorreaevents,radd)
+  }
+}
+
+k<-25-ncol(HOUCorreaevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUCorreaevents<-cbind(HOUCorreaevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUCorreaevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUCorreaevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUCorreaevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUCorreaevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUCorreaevents<-HOUCorreaevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUCorreaevents<-HOUCorreaevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUCorreaevents["SUM"]<-0
+for (i in 1:25){
+  HOUCorreaevents$SUM<-HOUCorreaevents$SUM+HOUCorreaevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUCorreaevents$SUM[w]<3){
+    HOUCorreaevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUCorreaevents<-HOUCorreaevents
+for (i in 1:25){
+  HOUCorreaevents[,i]<-HOUCorreaevents[,i]/HOUCorreaevents$SUM
+}
+
+HOUCorreaevents<-HOUCorreaevents[,1:25]
+HOUCorreaall.state<-colnames(HOUCorreaevents)
+HOUCorreaevents.m<-as.matrix(HOUCorreaevents)
+
+
+
+
+HOUCorreaevents<-as.data.frame(table(HOUCorrea$Current,HOUCorrea$Final))
+names(HOUCorreaevents)<-c("Current","Final","Freq") 
+HOUCorreaaggtable<-aggregate(HOUCorreaevents$Freq,by=list(HOUCorreaevents$Current),FUN=sum)
+names(HOUCorreaaggtable)<-c("Current","Total")
+HOUCorreaevents<-merge(HOUCorreaevents,HOUCorreaaggtable,by="Current")
+HOUCorreaevents["Trans_Prob"]<-HOUCorreaevents$Freq/HOUCorreaevents$TOTAL
+
+
+
+HOUCorreasub<-subset(HOUCorrea,select = c("Current","Final"))
+HOUCorreaevents<-table(HOUCorreasub)
+HOUCorreaevents<-table(HOUCorreasub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUCorreaevents)==25){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUCorreaevents)==24){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUCorreaevents)==23){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUCorreaevents)==22){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUCorreaevents)==21){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUCorreaevents)==20){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUCorreaevents)==19){  
+  HOUCorreaemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUCorreaemptyevents)<-c("3000")
+HOUCorreaemptyevents<-t(HOUCorreaemptyevents)
+HOUCorreaevents<-rbind(HOUCorreaevents,HOUCorreaemptyevents)
+HOUCorreaevents<-as.data.frame(HOUCorreaevents)
+HOUCorreaevents<-HOUCorreaevents[,1:p]
+st.col<-25-ncol(HOUCorreaevents)
+st.row<-25-nrow(HOUCorreaevents)
+
+while (nrow(HOUCorreaevents)!=25) {
+  k<-25-nrow(HOUCorreaevents)
+  x<-26-ncol(HOUCorreaevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUCorreaevents<-rbind(HOUCorreaevents,radd)
+  }
+}
+
+k<-25-ncol(HOUCorreaevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUCorreaevents<-cbind(HOUCorreaevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUCorreaevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUCorreaevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUCorreaevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUCorreaevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUCorreaevents<-HOUCorreaevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUCorreaevents<-HOUCorreaevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+ 
+HOUCorreaevents["SUM"]<-0
+for (i in 1:25){
+  HOUCorreaevents$SUM<-HOUCorreaevents$SUM+HOUCorreaevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUCorreaevents$SUM[w]<3){
+    HOUCorreaevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUCorreaevents<-HOUCorreaevents
+for (i in 1:25){
+  HOUCorreaevents[,i]<-HOUCorreaevents[,i]/HOUCorreaevents$SUM
+}
+
+HOUCorreaevents<-HOUCorreaevents[,1:25]
+HOUCorreaall.state<-colnames(HOUCorreaevents)
+HOUCorreaevents.m<-as.matrix(HOUCorreaevents)
+
+
+
+#Gonzalez 
+HOUGonzalezevents<-as.data.frame(table(HOUGonzalez$Current,HOUGonzalez$Final))
+names(HOUGonzalezevents)<-c("Current","Final","Freq") 
+HOUGonzalezaggtable<-aggregate(HOUGonzalezevents$Freq,by=list(HOUGonzalezevents$Current),FUN=sum)
+names(HOUGonzalezaggtable)<-c("Current","Total")
+HOUGonzalezevents<-merge(HOUGonzalezevents,HOUGonzalezaggtable,by="Current")
+HOUGonzalezevents["Trans_Prob"]<-HOUGonzalezevents$Freq/HOUGonzalezevents$TOTAL
+
+
+
+HOUGonzalezsub<-subset(HOUGonzalez,select = c("Current","Final"))
+HOUGonzalezevents<-table(HOUGonzalezsub)
+HOUGonzalezevents<-table(HOUGonzalezsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUGonzalezevents)==25){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUGonzalezevents)==24){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUGonzalezevents)==23){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUGonzalezevents)==22){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUGonzalezevents)==21){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUGonzalezevents)==20){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUGonzalezevents)==19){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUGonzalezemptyevents)<-c("3000")
+HOUGonzalezemptyevents<-t(HOUGonzalezemptyevents)
+HOUGonzalezevents<-rbind(HOUGonzalezevents,HOUGonzalezemptyevents)
+HOUGonzalezevents<-as.data.frame(HOUGonzalezevents)
+HOUGonzalezevents<-HOUGonzalezevents[,1:p]
+st.col<-25-ncol(HOUGonzalezevents)
+st.row<-25-nrow(HOUGonzalezevents)
+
+while (nrow(HOUGonzalezevents)!=25) {
+  k<-25-nrow(HOUGonzalezevents)
+  x<-26-ncol(HOUGonzalezevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUGonzalezevents<-rbind(HOUGonzalezevents,radd)
+  }
+}
+
+k<-25-ncol(HOUGonzalezevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUGonzalezevents<-cbind(HOUGonzalezevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUGonzalezevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUGonzalezevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUGonzalezevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUGonzalezevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUGonzalezevents<-HOUGonzalezevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUGonzalezevents<-HOUGonzalezevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUGonzalezevents["SUM"]<-0
+for (i in 1:25){
+  HOUGonzalezevents$SUM<-HOUGonzalezevents$SUM+HOUGonzalezevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUGonzalezevents$SUM[w]<3){
+    HOUGonzalezevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUGonzalezevents<-HOUGonzalezevents
+for (i in 1:25){
+  HOUGonzalezevents[,i]<-HOUGonzalezevents[,i]/HOUGonzalezevents$SUM
+}
+
+HOUGonzalezevents<-HOUGonzalezevents[,1:25]
+HOUGonzalezall.state<-colnames(HOUGonzalezevents)
+HOUGonzalezevents.m<-as.matrix(HOUGonzalezevents)
+
+
+
+
+HOUGonzalezevents<-as.data.frame(table(HOUGonzalez$Current,HOUGonzalez$Final))
+names(HOUGonzalezevents)<-c("Current","Final","Freq") 
+HOUGonzalezaggtable<-aggregate(HOUGonzalezevents$Freq,by=list(HOUGonzalezevents$Current),FUN=sum)
+names(HOUGonzalezaggtable)<-c("Current","Total")
+HOUGonzalezevents<-merge(HOUGonzalezevents,HOUGonzalezaggtable,by="Current")
+HOUGonzalezevents["Trans_Prob"]<-HOUGonzalezevents$Freq/HOUGonzalezevents$TOTAL
+
+
+
+HOUGonzalezsub<-subset(HOUGonzalez,select = c("Current","Final"))
+HOUGonzalezevents<-table(HOUGonzalezsub)
+HOUGonzalezevents<-table(HOUGonzalezsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUGonzalezevents)==25){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUGonzalezevents)==24){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUGonzalezevents)==23){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUGonzalezevents)==22){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUGonzalezevents)==21){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUGonzalezevents)==20){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUGonzalezevents)==19){  
+  HOUGonzalezemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUGonzalezemptyevents)<-c("3000")
+HOUGonzalezemptyevents<-t(HOUGonzalezemptyevents)
+HOUGonzalezevents<-rbind(HOUGonzalezevents,HOUGonzalezemptyevents)
+HOUGonzalezevents<-as.data.frame(HOUGonzalezevents)
+HOUGonzalezevents<-HOUGonzalezevents[,1:p]
+st.col<-25-ncol(HOUGonzalezevents)
+st.row<-25-nrow(HOUGonzalezevents)
+
+while (nrow(HOUGonzalezevents)!=25) {
+  k<-25-nrow(HOUGonzalezevents)
+  x<-26-ncol(HOUGonzalezevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUGonzalezevents<-rbind(HOUGonzalezevents,radd)
+  }
+}
+
+k<-25-ncol(HOUGonzalezevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUGonzalezevents<-cbind(HOUGonzalezevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUGonzalezevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUGonzalezevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUGonzalezevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUGonzalezevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUGonzalezevents<-HOUGonzalezevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUGonzalezevents<-HOUGonzalezevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUGonzalezevents["SUM"]<-0
+for (i in 1:25){
+  HOUGonzalezevents$SUM<-HOUGonzalezevents$SUM+HOUGonzalezevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUGonzalezevents$SUM[w]<3){
+    HOUGonzalezevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUGonzalezevents<-HOUGonzalezevents
+for (i in 1:25){
+  HOUGonzalezevents[,i]<-HOUGonzalezevents[,i]/HOUGonzalezevents$SUM
+}
+
+HOUGonzalezevents<-HOUGonzalezevents[,1:25]
+HOUGonzalezall.state<-colnames(HOUGonzalezevents)
+HOUGonzalezevents.m<-as.matrix(HOUGonzalezevents)
+
+
+#Gurriel 
+HOUGurrielevents<-as.data.frame(table(HOUGurriel$Current,HOUGurriel$Final))
+names(HOUGurrielevents)<-c("Current","Final","Freq") 
+HOUGurrielaggtable<-aggregate(HOUGurrielevents$Freq,by=list(HOUGurrielevents$Current),FUN=sum)
+names(HOUGurrielaggtable)<-c("Current","Total")
+HOUGurrielevents<-merge(HOUGurrielevents,HOUGurrielaggtable,by="Current")
+HOUGurrielevents["Trans_Prob"]<-HOUGurrielevents$Freq/HOUGurrielevents$TOTAL
+
+
+
+HOUGurrielsub<-subset(HOUGurriel,select = c("Current","Final"))
+HOUGurrielevents<-table(HOUGurrielsub)
+HOUGurrielevents<-table(HOUGurrielsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUGurrielevents)==25){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUGurrielevents)==24){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUGurrielevents)==23){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUGurrielevents)==22){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUGurrielevents)==21){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUGurrielevents)==20){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUGurrielevents)==19){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUGurrielemptyevents)<-c("3000")
+HOUGurrielemptyevents<-t(HOUGurrielemptyevents)
+HOUGurrielevents<-rbind(HOUGurrielevents,HOUGurrielemptyevents)
+HOUGurrielevents<-as.data.frame(HOUGurrielevents)
+HOUGurrielevents<-HOUGurrielevents[,1:p]
+st.col<-25-ncol(HOUGurrielevents)
+st.row<-25-nrow(HOUGurrielevents)
+
+while (nrow(HOUGurrielevents)!=25) {
+  k<-25-nrow(HOUGurrielevents)
+  x<-26-ncol(HOUGurrielevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUGurrielevents<-rbind(HOUGurrielevents,radd)
+  }
+}
+
+k<-25-ncol(HOUGurrielevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUGurrielevents<-cbind(HOUGurrielevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUGurrielevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUGurrielevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUGurrielevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUGurrielevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUGurrielevents<-HOUGurrielevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUGurrielevents<-HOUGurrielevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUGurrielevents["SUM"]<-0
+for (i in 1:25){
+  HOUGurrielevents$SUM<-HOUGurrielevents$SUM+HOUGurrielevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUGurrielevents$SUM[w]<3){
+    HOUGurrielevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUGurrielevents<-HOUGurrielevents
+for (i in 1:25){
+  HOUGurrielevents[,i]<-HOUGurrielevents[,i]/HOUGurrielevents$SUM
+}
+
+HOUGurrielevents<-HOUGurrielevents[,1:25]
+HOUGurrielall.state<-colnames(HOUGurrielevents)
+HOUGurrielevents.m<-as.matrix(HOUGurrielevents)
+
+
+
+
+HOUGurrielevents<-as.data.frame(table(HOUGurriel$Current,HOUGurriel$Final))
+names(HOUGurrielevents)<-c("Current","Final","Freq") 
+HOUGurrielaggtable<-aggregate(HOUGurrielevents$Freq,by=list(HOUGurrielevents$Current),FUN=sum)
+names(HOUGurrielaggtable)<-c("Current","Total")
+HOUGurrielevents<-merge(HOUGurrielevents,HOUGurrielaggtable,by="Current")
+HOUGurrielevents["Trans_Prob"]<-HOUGurrielevents$Freq/HOUGurrielevents$TOTAL
+
+
+
+HOUGurrielsub<-subset(HOUGurriel,select = c("Current","Final"))
+HOUGurrielevents<-table(HOUGurrielsub)
+HOUGurrielevents<-table(HOUGurrielsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUGurrielevents)==25){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUGurrielevents)==24){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUGurrielevents)==23){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUGurrielevents)==22){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUGurrielevents)==21){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUGurrielevents)==20){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUGurrielevents)==19){  
+  HOUGurrielemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUGurrielemptyevents)<-c("3000")
+HOUGurrielemptyevents<-t(HOUGurrielemptyevents)
+HOUGurrielevents<-rbind(HOUGurrielevents,HOUGurrielemptyevents)
+HOUGurrielevents<-as.data.frame(HOUGurrielevents)
+HOUGurrielevents<-HOUGurrielevents[,1:p]
+st.col<-25-ncol(HOUGurrielevents)
+st.row<-25-nrow(HOUGurrielevents)
+
+while (nrow(HOUGurrielevents)!=25) {
+  k<-25-nrow(HOUGurrielevents)
+  x<-26-ncol(HOUGurrielevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUGurrielevents<-rbind(HOUGurrielevents,radd)
+  }
+}
+
+k<-25-ncol(HOUGurrielevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUGurrielevents<-cbind(HOUGurrielevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUGurrielevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUGurrielevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUGurrielevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUGurrielevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUGurrielevents<-HOUGurrielevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUGurrielevents<-HOUGurrielevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUGurrielevents["SUM"]<-0
+for (i in 1:25){
+  HOUGurrielevents$SUM<-HOUGurrielevents$SUM+HOUGurrielevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUGurrielevents$SUM[w]<3){
+    HOUGurrielevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUGurrielevents<-HOUGurrielevents
+for (i in 1:25){
+  HOUGurrielevents[,i]<-HOUGurrielevents[,i]/HOUGurrielevents$SUM
+}
+
+HOUGurrielevents<-HOUGurrielevents[,1:25]
+HOUGurrielall.state<-colnames(HOUGurrielevents)
+HOUGurrielevents.m<-as.matrix(HOUGurrielevents)
+
+
+#McCann  
+HOUMcCannevents<-as.data.frame(table(HOUMcCann$Current,HOUMcCann$Final))
+names(HOUMcCannevents)<-c("Current","Final","Freq") 
+HOUMcCannaggtable<-aggregate(HOUMcCannevents$Freq,by=list(HOUMcCannevents$Current),FUN=sum)
+names(HOUMcCannaggtable)<-c("Current","Total")
+HOUMcCannevents<-merge(HOUMcCannevents,HOUMcCannaggtable,by="Current")
+HOUMcCannevents["Trans_Prob"]<-HOUMcCannevents$Freq/HOUMcCannevents$TOTAL
+
+
+
+HOUMcCannsub<-subset(HOUMcCann,select = c("Current","Final"))
+HOUMcCannevents<-table(HOUMcCannsub)
+HOUMcCannevents<-table(HOUMcCannsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUMcCannevents)==25){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUMcCannevents)==24){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUMcCannevents)==23){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUMcCannevents)==22){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUMcCannevents)==21){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUMcCannevents)==20){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUMcCannevents)==19){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUMcCannemptyevents)<-c("3000")
+HOUMcCannemptyevents<-t(HOUMcCannemptyevents)
+HOUMcCannevents<-rbind(HOUMcCannevents,HOUMcCannemptyevents)
+HOUMcCannevents<-as.data.frame(HOUMcCannevents)
+HOUMcCannevents<-HOUMcCannevents[,1:p]
+st.col<-25-ncol(HOUMcCannevents)
+st.row<-25-nrow(HOUMcCannevents)
+
+while (nrow(HOUMcCannevents)!=25) {
+  k<-25-nrow(HOUMcCannevents)
+  x<-26-ncol(HOUMcCannevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUMcCannevents<-rbind(HOUMcCannevents,radd)
+  }
+}
+
+k<-25-ncol(HOUMcCannevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUMcCannevents<-cbind(HOUMcCannevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUMcCannevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUMcCannevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUMcCannevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUMcCannevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUMcCannevents<-HOUMcCannevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUMcCannevents<-HOUMcCannevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUMcCannevents["SUM"]<-0
+for (i in 1:25){
+  HOUMcCannevents$SUM<-HOUMcCannevents$SUM+HOUMcCannevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUMcCannevents$SUM[w]<3){
+    HOUMcCannevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUMcCannevents<-HOUMcCannevents
+for (i in 1:25){
+  HOUMcCannevents[,i]<-HOUMcCannevents[,i]/HOUMcCannevents$SUM
+}
+
+HOUMcCannevents<-HOUMcCannevents[,1:25]
+HOUMcCannall.state<-colnames(HOUMcCannevents)
+HOUMcCannevents.m<-as.matrix(HOUMcCannevents)
+
+
+
+
+HOUMcCannevents<-as.data.frame(table(HOUMcCann$Current,HOUMcCann$Final))
+names(HOUMcCannevents)<-c("Current","Final","Freq") 
+HOUMcCannaggtable<-aggregate(HOUMcCannevents$Freq,by=list(HOUMcCannevents$Current),FUN=sum)
+names(HOUMcCannaggtable)<-c("Current","Total")
+HOUMcCannevents<-merge(HOUMcCannevents,HOUMcCannaggtable,by="Current")
+HOUMcCannevents["Trans_Prob"]<-HOUMcCannevents$Freq/HOUMcCannevents$TOTAL
+
+
+
+HOUMcCannsub<-subset(HOUMcCann,select = c("Current","Final"))
+HOUMcCannevents<-table(HOUMcCannsub)
+HOUMcCannevents<-table(HOUMcCannsub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUMcCannevents)==25){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUMcCannevents)==24){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUMcCannevents)==23){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUMcCannevents)==22){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUMcCannevents)==21){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUMcCannevents)==20){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUMcCannevents)==19){  
+  HOUMcCannemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUMcCannemptyevents)<-c("3000")
+HOUMcCannemptyevents<-t(HOUMcCannemptyevents)
+HOUMcCannevents<-rbind(HOUMcCannevents,HOUMcCannemptyevents)
+HOUMcCannevents<-as.data.frame(HOUMcCannevents)
+HOUMcCannevents<-HOUMcCannevents[,1:p]
+st.col<-25-ncol(HOUMcCannevents)
+st.row<-25-nrow(HOUMcCannevents)
+
+while (nrow(HOUMcCannevents)!=25) {
+  k<-25-nrow(HOUMcCannevents)
+  x<-26-ncol(HOUMcCannevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUMcCannevents<-rbind(HOUMcCannevents,radd)
+  }
+}
+
+k<-25-ncol(HOUMcCannevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUMcCannevents<-cbind(HOUMcCannevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUMcCannevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUMcCannevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUMcCannevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUMcCannevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUMcCannevents<-HOUMcCannevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUMcCannevents<-HOUMcCannevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+ 
+HOUMcCannevents["SUM"]<-0
+for (i in 1:25){
+  HOUMcCannevents$SUM<-HOUMcCannevents$SUM+HOUMcCannevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUMcCannevents$SUM[w]<3){
+    HOUMcCannevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUMcCannevents<-HOUMcCannevents
+for (i in 1:25){
+  HOUMcCannevents[,i]<-HOUMcCannevents[,i]/HOUMcCannevents$SUM
+}
+
+HOUMcCannevents<-HOUMcCannevents[,1:25]
+HOUMcCannall.state<-colnames(HOUMcCannevents)
+HOUMcCannevents.m<-as.matrix(HOUMcCannevents)
+
+
+#Reddick  
+HOUReddickevents<-as.data.frame(table(HOUReddick$Current,HOUReddick$Final))
+names(HOUReddickevents)<-c("Current","Final","Freq") 
+HOUReddickaggtable<-aggregate(HOUReddickevents$Freq,by=list(HOUReddickevents$Current),FUN=sum)
+names(HOUReddickaggtable)<-c("Current","Total")
+HOUReddickevents<-merge(HOUReddickevents,HOUReddickaggtable,by="Current")
+HOUReddickevents["Trans_Prob"]<-HOUReddickevents$Freq/HOUReddickevents$TOTAL
+
+
+
+HOUReddicksub<-subset(HOUReddick,select = c("Current","Final"))
+HOUReddickevents<-table(HOUReddicksub)
+HOUReddickevents<-table(HOUReddicksub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUReddickevents)==25){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUReddickevents)==24){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUReddickevents)==23){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUReddickevents)==22){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUReddickevents)==21){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUReddickevents)==20){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUReddickevents)==19){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUReddickemptyevents)<-c("3000")
+HOUReddickemptyevents<-t(HOUReddickemptyevents)
+HOUReddickevents<-rbind(HOUReddickevents,HOUReddickemptyevents)
+HOUReddickevents<-as.data.frame(HOUReddickevents)
+HOUReddickevents<-HOUReddickevents[,1:p]
+st.col<-25-ncol(HOUReddickevents)
+st.row<-25-nrow(HOUReddickevents)
+
+while (nrow(HOUReddickevents)!=25) {
+  k<-25-nrow(HOUReddickevents)
+  x<-26-ncol(HOUReddickevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUReddickevents<-rbind(HOUReddickevents,radd)
+  }
+}
+
+k<-25-ncol(HOUReddickevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUReddickevents<-cbind(HOUReddickevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUReddickevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUReddickevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUReddickevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUReddickevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUReddickevents<-HOUReddickevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUReddickevents<-HOUReddickevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUReddickevents["SUM"]<-0
+for (i in 1:25){
+  HOUReddickevents$SUM<-HOUReddickevents$SUM+HOUReddickevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUReddickevents$SUM[w]<3){
+    HOUReddickevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUReddickevents<-HOUReddickevents
+for (i in 1:25){
+  HOUReddickevents[,i]<-HOUReddickevents[,i]/HOUReddickevents$SUM
+}
+
+HOUReddickevents<-HOUReddickevents[,1:25]
+HOUReddickall.state<-colnames(HOUReddickevents)
+HOUReddickevents.m<-as.matrix(HOUReddickevents)
+
+
+
+
+HOUReddickevents<-as.data.frame(table(HOUReddick$Current,HOUReddick$Final))
+names(HOUReddickevents)<-c("Current","Final","Freq") 
+HOUReddickaggtable<-aggregate(HOUReddickevents$Freq,by=list(HOUReddickevents$Current),FUN=sum)
+names(HOUReddickaggtable)<-c("Current","Total")
+HOUReddickevents<-merge(HOUReddickevents,HOUReddickaggtable,by="Current")
+HOUReddickevents["Trans_Prob"]<-HOUReddickevents$Freq/HOUReddickevents$TOTAL
+
+
+
+HOUReddicksub<-subset(HOUReddick,select = c("Current","Final"))
+HOUReddickevents<-table(HOUReddicksub)
+HOUReddickevents<-table(HOUReddicksub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUReddickevents)==25){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUReddickevents)==24){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUReddickevents)==23){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUReddickevents)==22){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUReddickevents)==21){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUReddickevents)==20){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUReddickevents)==19){  
+  HOUReddickemptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUReddickemptyevents)<-c("3000")
+HOUReddickemptyevents<-t(HOUReddickemptyevents)
+HOUReddickevents<-rbind(HOUReddickevents,HOUReddickemptyevents)
+HOUReddickevents<-as.data.frame(HOUReddickevents)
+HOUReddickevents<-HOUReddickevents[,1:p]
+st.col<-25-ncol(HOUReddickevents)
+st.row<-25-nrow(HOUReddickevents)
+
+while (nrow(HOUReddickevents)!=25) {
+  k<-25-nrow(HOUReddickevents)
+  x<-26-ncol(HOUReddickevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUReddickevents<-rbind(HOUReddickevents,radd)
+  }
+}
+
+k<-25-ncol(HOUReddickevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUReddickevents<-cbind(HOUReddickevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUReddickevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUReddickevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUReddickevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUReddickevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUReddickevents<-HOUReddickevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUReddickevents<-HOUReddickevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUReddickevents["SUM"]<-0
+for (i in 1:25){
+  HOUReddickevents$SUM<-HOUReddickevents$SUM+HOUReddickevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUReddickevents$SUM[w]<3){
+    HOUReddickevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUReddickevents<-HOUReddickevents
+for (i in 1:25){
+  HOUReddickevents[,i]<-HOUReddickevents[,i]/HOUReddickevents$SUM
+}
+
+HOUReddickevents<-HOUReddickevents[,1:25]
+HOUReddickall.state<-colnames(HOUReddickevents)
+HOUReddickevents.m<-as.matrix(HOUReddickevents)
+
+
+#Springer 
+HOUSpringerevents<-as.data.frame(table(HOUSpringer$Current,HOUSpringer$Final))
+names(HOUSpringerevents)<-c("Current","Final","Freq") 
+HOUSpringeraggtable<-aggregate(HOUSpringerevents$Freq,by=list(HOUSpringerevents$Current),FUN=sum)
+names(HOUSpringeraggtable)<-c("Current","Total")
+HOUSpringerevents<-merge(HOUSpringerevents,HOUSpringeraggtable,by="Current")
+HOUSpringerevents["Trans_Prob"]<-HOUSpringerevents$Freq/HOUSpringerevents$TOTAL
+
+
+
+HOUSpringersub<-subset(HOUSpringer,select = c("Current","Final"))
+HOUSpringerevents<-table(HOUSpringersub)
+HOUSpringerevents<-table(HOUSpringersub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUSpringerevents)==25){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUSpringerevents)==24){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUSpringerevents)==23){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUSpringerevents)==22){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUSpringerevents)==21){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUSpringerevents)==20){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUSpringerevents)==19){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUSpringeremptyevents)<-c("3000")
+HOUSpringeremptyevents<-t(HOUSpringeremptyevents)
+HOUSpringerevents<-rbind(HOUSpringerevents,HOUSpringeremptyevents)
+HOUSpringerevents<-as.data.frame(HOUSpringerevents)
+HOUSpringerevents<-HOUSpringerevents[,1:p]
+st.col<-25-ncol(HOUSpringerevents)
+st.row<-25-nrow(HOUSpringerevents)
+
+while (nrow(HOUSpringerevents)!=25) {
+  k<-25-nrow(HOUSpringerevents)
+  x<-26-ncol(HOUSpringerevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUSpringerevents<-rbind(HOUSpringerevents,radd)
+  }
+}
+
+k<-25-ncol(HOUSpringerevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUSpringerevents<-cbind(HOUSpringerevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUSpringerevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUSpringerevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUSpringerevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUSpringerevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUSpringerevents<-HOUSpringerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUSpringerevents<-HOUSpringerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUSpringerevents["SUM"]<-0
+for (i in 1:25){
+  HOUSpringerevents$SUM<-HOUSpringerevents$SUM+HOUSpringerevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUSpringerevents$SUM[w]<3){
+    HOUSpringerevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUSpringerevents<-HOUSpringerevents
+for (i in 1:25){
+  HOUSpringerevents[,i]<-HOUSpringerevents[,i]/HOUSpringerevents$SUM
+}
+
+HOUSpringerevents<-HOUSpringerevents[,1:25]
+HOUSpringerall.state<-colnames(HOUSpringerevents)
+HOUSpringerevents.m<-as.matrix(HOUSpringerevents)
+
+
+
+
+HOUSpringerevents<-as.data.frame(table(HOUSpringer$Current,HOUSpringer$Final))
+names(HOUSpringerevents)<-c("Current","Final","Freq") 
+HOUSpringeraggtable<-aggregate(HOUSpringerevents$Freq,by=list(HOUSpringerevents$Current),FUN=sum)
+names(HOUSpringeraggtable)<-c("Current","Total")
+HOUSpringerevents<-merge(HOUSpringerevents,HOUSpringeraggtable,by="Current")
+HOUSpringerevents["Trans_Prob"]<-HOUSpringerevents$Freq/HOUSpringerevents$TOTAL
+
+
+
+HOUSpringersub<-subset(HOUSpringer,select = c("Current","Final"))
+HOUSpringerevents<-table(HOUSpringersub)
+HOUSpringerevents<-table(HOUSpringersub)
+
+all.states<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+
+
+if (ncol(HOUSpringerevents)==25){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-25
+}
+if (ncol(HOUSpringerevents)==24){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-24
+}
+if (ncol(HOUSpringerevents)==23){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-23
+}
+if (ncol(HOUSpringerevents)==22){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-22
+}
+if (ncol(HOUSpringerevents)==21){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-21
+}
+if (ncol(HOUSpringerevents)==20){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-20
+}
+if (ncol(HOUSpringerevents)==19){  
+  HOUSpringeremptyevents<-as.data.frame(c(100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+  p<-19
+}
+
+names(HOUSpringeremptyevents)<-c("3000")
+HOUSpringeremptyevents<-t(HOUSpringeremptyevents)
+HOUSpringerevents<-rbind(HOUSpringerevents,HOUSpringeremptyevents)
+HOUSpringerevents<-as.data.frame(HOUSpringerevents)
+HOUSpringerevents<-HOUSpringerevents[,1:p]
+st.col<-25-ncol(HOUSpringerevents)
+st.row<-25-nrow(HOUSpringerevents)
+
+while (nrow(HOUSpringerevents)!=25) {
+  k<-25-nrow(HOUSpringerevents)
+  x<-26-ncol(HOUSpringerevents)
+  if (x==1){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  if (x==2){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==3){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  } 
+  if (x==4){
+    radd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  }
+  for (i in 1:k){
+    HOUSpringerevents<-rbind(HOUSpringerevents,radd)
+  }
+}
+
+k<-25-ncol(HOUSpringerevents)
+cadd<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+if (k!=0){
+  for (i in 1:k){
+    HOUSpringerevents<-cbind(HOUSpringerevents,cadd)
+  }
+}  
+
+
+
+miss.row<-all.states[!all.states %in%rownames(HOUSpringerevents)]
+miss.col<-all.states[!all.states %in%colnames(HOUSpringerevents)]
+e<-length(miss.row)
+f<-length(miss.col)
+
+if (e!=0){
+  for ( b in 1:e){
+    row.names(HOUSpringerevents)[26-b]<-miss.row[b]
+  }
+}
+
+if (f!=0){
+  for ( b in 1:f){
+    colnames(HOUSpringerevents)[26-b]<-miss.col[b]
+  }
+}
+
+HOUSpringerevents<-HOUSpringerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")]
+HOUSpringerevents<-HOUSpringerevents[c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000"),]
+
+
+HOUSpringerevents["SUM"]<-0
+for (i in 1:25){
+  HOUSpringerevents$SUM<-HOUSpringerevents$SUM+HOUSpringerevents[,i]
+}
+
+for (w in 1:25){
+  if (HOUSpringerevents$SUM[w]<3){
+    HOUSpringerevents[w,]<-mlb.events[w,]
+  }
+}
+
+HOUSpringerevents<-HOUSpringerevents
+for (i in 1:25){
+  HOUSpringerevents[,i]<-HOUSpringerevents[,i]/HOUSpringerevents$SUM
+}
+
+HOUSpringerevents<-HOUSpringerevents[,1:25]
+HOUSpringerall.state<-colnames(HOUSpringerevents)
+HOUSpringerevents.m<-as.matrix(HOUSpringerevents)
+
+"Convert Matrices into Markovchains"
+LADTaylor<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LANTaylorevents.m,name="MLB Events")
+LADSeager<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LANSeagerevents.m,name="MLB States")
+LADTurner<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LANTurnerevents.m,name="MLB States")
+LADBellinger<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LANBellingerevents.m,name="MLB States")
+LADPuig<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LANPuigevents.m,name="MLB States")
+LADPederson<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LANPedersonevents.m,name="MLB States")
+LADForsythe<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LANForsytheevents.m,name="MLB States")
+LADBarnes<-new("markovchain",states=states.list,byrow=T,transitionMatrix=LANBarnesevents.m,name="MLB States")
+
+HoustonAltuve<-new("markovchain",states=states.list,byrow=T,transitionMatrix=HOUAltuveevents.m,name="MLB States")
+HoustonBregman<-new("markovchain",states=states.list,byrow=T,transitionMatrix=HOUBregmanevents.m,name="MLB States")
+HoustonCorrea<- new("markovchain",states=states.list,byrow=T,transitionMatrix=HOUCorreaevents.m,name="MLB States")
+HoustonGonzalez<- new("markovchain",states=states.list,byrow=T,transitionMatrix=HOUGonzalezevents.m,name="MLB States")
+HoustonGurriel<- new("markovchain",states=states.list,byrow=T,transitionMatrix=HOUGurrielevents.m,name="MLB States")
+HoustonMcCann<- new("markovchain",states=states.list,byrow=T,transitionMatrix=HOUMcCannevents.m,name="MLB States")
+HoustonReddick<-new("markovchain",states=states.list,byrow=T,transitionMatrix=HOUReddickevents.m,name="MLB States")
+HoustonSpringer<-new("markovchain",states=states.list,byrow=T,transitionMatrix=HOUSpringerevents.m,name="MLB States")
+
+
+
+#Pitcher Matix for game 7 who always strikes out"
+out.pitcher<-events.m
+out.pitcher["0000",]<-c(0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+out.pitcher["0001",]<-c(0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+out.pitcher["0010",]<-c(0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+out.pitcher["0011",]<-c(0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0)
+out.pitcher["0100",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0)
+out.pitcher["0101",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0)
+out.pitcher["0110",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0)
+out.pitcher["0111",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0)
+out.pitcher["1000",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0)
+out.pitcher["1001",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0)
+out.pitcher["1010",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0)
+out.pitcher["1011",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0)
+out.pitcher["1100",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0)
+out.pitcher["1101",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0)
+out.pitcher["1110",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0)
+out.pitcher["1111",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0)
+out.pitcher["2000",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+out.pitcher["2001",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+out.pitcher["2010",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+out.pitcher["2011",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+out.pitcher["2100",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+out.pitcher["2101",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+out.pitcher["2110",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+out.pitcher["2111",]<-c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+out.pitcher["3000",]<-c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+
+out.pitcher<-new("markovchain",states=states.list,byrow=T,transitionMatrix=events.m,name="MLB States")
+
+
+
+
+
+"Code for Game 7"
+LAN.lineup.events<-c(LADTaylor,LADSeager,LADTurner,LADBellinger,LADPuig,LADPederson,LADForsythe,LADBarnes,out.pitcher)
+HOU.lineup.events<-c(HoustonAltuve,HoustonBregman,HoustonCorrea,HoustonGonzalez,HoustonGurriel,HoustonMcCann,HoustonReddick,HoustonSpringer,out.pitcher)
+
+total.LAN.score<-0
+total.HOU.score<-0
+LAN.wins<-0
+HOU.wins<-0
+
+for (n in 1:10000){    
+inning<-1
+LAN.score<-0
+HOU.score<-0
+LAN.spot<-1
+HOU.spot<-1
+LAN.current.exp.runs<-0
+HOU.current.exp.runs<-0
+while (inning<10){
+  # LA Dodgers AT-BAT
+  cur.state<-"0000"
+  while (cur.state!="3000"){
+    batter<-LAN.lineup.events[LAN.spot][[1]]
+    names(batter)<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+    mci<-as.data.frame(batter[cur.state])
+    names(mci)<-c("prob")
+    mci["min"]<-0
+    mci["max"]<-0
+    mci["choice"]<-0
+    mci$max[1]<-mci$prob[1]
+    for (j in 2:nrow(mci)){
+      k<-j-1
+      mci$min[j]<-mci$max[k]
+      mci$max[j]<-mci$min[j]+mci$prob[j]
+    }
+    mci$min<-mci$min*1000
+    mci$max<-mci$max*1000
+    #chance<-sample(1:1000,1)
+    chance<-as.numeric(runif(1,min=0,max = 1000))
+    for (a in 1:nrow(mci)){
+      if ((chance>mci$min[a]) & (chance<=mci$max[a])){
+        mci$choice[a]<-1
+        n_state<-rownames(mci[a,])
+      }
+    }
+    
+    
+    st.exp.runs<-subset(LAN.exp.runs,LAN.exp.runs$Current==cur.state & LAN.exp.runs$Final==n_state)
+    LAN.current.exp.runs<-LAN.current.exp.runs+st.exp.runs$Exp_Runs
+    cur.state<-n_state 
+    LAN.spot<-LAN.spot+1
+    if (LAN.spot==10){
+      LAN.spot<-1
+    }
+  }  
+  
+  # Houston AT-BAT
+  cur.state<-"0000"
+  while (cur.state!="3000"){
+    batter<-HOU.lineup.events[HOU.spot][[1]]
+    names(batter)<-c("0000","0001","0010","0011","0100","0101","0110","0111","1000","1001","1010","1011","1100","1101","1110","1111","2000","2001","2010","2011","2100","2101","2110","2111","3000")
+    mci<-as.data.frame(batter[cur.state])
+    names(mci)<-c("prob")
+    mci["min"]<-0
+    mci["max"]<-0
+    mci["choice"]<-0
+    mci$max[1]<-mci$prob[1]
+    for (j in 2:nrow(mci)){
+      k<-j-1
+      mci$min[j]<-mci$max[k]
+      mci$max[j]<-mci$min[j]+mci$prob[j]
+    }
+    mci$min<-mci$min*1000
+    mci$max<-mci$max*1000
+    #chance<-sample(1:1000,1)
+    chance<-as.numeric(runif(1,min=0,max = 1000))
+    for (a in 1:nrow(mci)){
+      if ((chance>mci$min[a]) & (chance<=mci$max[a])){
+        mci$choice[a]<-1
+        n_state<-rownames(mci[a,])
+      }
+     }
+ 
+  st.exp.runs<-subset(HOU.exp.runs,HOU.exp.runs$Current==cur.state & HOU.exp.runs$Final==n_state)
+  HOU.current.exp.runs<-HOU.current.exp.runs+st.exp.runs$Exp_Runs
+  cur.state<-n_state 
+ 
+  HOU.spot<-HOU.spot+1
+  if (HOU.spot==10){
+    HOU.spot<-1
+  }
+  }
+  
+
+
+inning<-inning+1
+
+LAN.score<-LAN.current.exp.runs
+HOU.score<-HOU.current.exp.runs
+}
+
+
+
+total.LAN.score<-total.LAN.score+LAN.score
+total.HOU.score<-total.HOU.score+HOU.score
+
+
+if (LAN.score>HOU.score){
+  LAN.wins<-LAN.wins+1
+
+if (HOU.score>LAN.score){
+  HOU.wins<-HOU.wins+1
+  
+}
+
+
+  
+}
+}
+
+
+print(paste("Houston Average Score: ",total.HOU.score/10000))         
+print(paste("LA Dodgers Average Score: ",total.LAN.score/10000))        
+print(paste("LA Dodgers Wins: ",LAN.wins))
+
+
+
