@@ -1,0 +1,555 @@
+# Assignment 2 Plus-Minus Jump-Start Code
+
+# Prepared by Thomas W. Miller, August 6, 2018
+
+# The objective is to develop plus-minus measures 
+# that may be used to predict the results of one of the
+# playoff match-ups. So let's focus on a subset of the 
+# play-by-play data for the season, using data for just two teams
+# that made the 2017-18 NBA playoffs. 
+
+library(lubridate)  # for convenient date/time stamp conversions
+
+# read list of games into gamesdf data frame
+gamesdf <- read.csv('nba-games-2017-18.csv', 
+                    colClasses = c("character", "character", "character", "character"),
+                    stringsAsFactors = FALSE)
+
+season_gamesdf <- gamesdf[(gamesdf$game_type == 'season'),]
+playoff_gamesdf <- gamesdf[(gamesdf$game_type == 'playoff'),]
+
+# 2017-18 playoff matchups include
+# First round 
+# selected_teams <- c('OKC', 'UTA')  
+# selected_teams <- c('GSW', 'SAS') 
+# selected_teams <- c('MIA', 'PHI') 
+# selected_teams <- c('TOR', 'WAS') 
+# selected_teams <- c('NOP', 'POR') 
+# selected_teams <- c('CLE', 'IND')
+# selected_teams <- c('BOS', 'MIL')
+# selected_teams <- c('HOU', 'MIN')
+# Semifinals
+# selected_teams <- c('HOU', 'UTA')
+# selected_teams <- c('GSW', 'NOP')
+# selected_teams <- c('CLE', 'TOR')
+# selected_teams <- c('BOS', 'PHI')
+# Conference finals
+# selected_teams <- c('GSW', 'HOU')
+# selected_teams <- c('BOS', 'CLE')
+# Finals
+# selected_teams <- c('CLE', 'GSW')
+
+# Choose one of the playoff team match-ups for this assignment
+# Suppose we choose Utah Jazz and Oklahoma City Thunder as the playoff match-up.
+selected_teams <- c('NOP', 'POR')
+
+# Select season games that involve both selected teams          
+temp_selected <- 
+  season_gamesdf[(season_gamesdf$away_team %in% selected_teams),]  
+both_selected <- 
+  temp_selected[(temp_selected$home_team %in% selected_teams),]  
+
+# Select season games that involve one of the selected teams 
+# as the away team and not the other team as the home team
+temp_selected <- 
+  season_gamesdf[(season_gamesdf$away_team %in% selected_teams),]  
+only_away_selected <- 
+  temp_selected[!(temp_selected$home_team %in% selected_teams),]            
+
+# Select season games that involve one of the selected teams 
+# as the home team and not the other team as the away team
+temp_selected <- 
+  season_gamesdf[(season_gamesdf$home_team %in% selected_teams),]  
+only_home_selected <- 
+  temp_selected[!(temp_selected$away_team %in% selected_teams),]       
+
+selected_season_gamesdf <- rbind(both_selected, 
+                                 only_away_selected,
+                                 only_home_selected) 
+
+# Select playoff games that involve both selected teams          
+temp_selected <- 
+  playoff_gamesdf[(playoff_gamesdf$away_team %in% selected_teams),]  
+selected_playoff_gamesdf <- 
+  temp_selected[(temp_selected$home_team %in% selected_teams),]        
+
+# Read play-by-play data for the regular season (all games in 2017-18)
+season_pbpdf <- 
+  read.csv('plays-2017-2018-season.csv', 
+           colClasses = c("character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character"),
+           stringsAsFactors = FALSE)
+
+season_pbpdf$period  <- as.numeric(season_pbpdf$period)
+season_pbpdf$away_score  <- as.numeric(season_pbpdf$away_score)
+season_pbpdf$home_score  <- as.numeric(season_pbpdf$home_score)
+season_pbpdf$points  <- as.numeric(season_pbpdf$points)
+season_pbpdf$original_x  <- as.numeric(season_pbpdf$original_x)
+season_pbpdf$original_y  <- as.numeric(season_pbpdf$original_y)
+season_pbpdf$converted_x  <- as.numeric(season_pbpdf$converted_x)
+season_pbpdf$converted_y  <- as.numeric(season_pbpdf$converted_y)
+
+# Select regular season games for the two selected teams
+selected_season_pbpdf <- 
+  season_pbpdf[(season_pbpdf$game_id %in% selected_season_gamesdf$game_id), ]
+
+# Read play-by-play data for the regular playoff (all games in 2017-18)
+playoff_pbpdf <- 
+  read.csv('plays-2017-2018-playoff.csv', 
+           colClasses = c("character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character",
+                          "character"),
+           stringsAsFactors = FALSE)
+
+playoff_pbpdf$period  <- as.numeric(playoff_pbpdf$period)
+playoff_pbpdf$away_score  <- as.numeric(playoff_pbpdf$away_score)
+playoff_pbpdf$home_score  <- as.numeric(playoff_pbpdf$home_score)
+playoff_pbpdf$points  <- as.numeric(playoff_pbpdf$points)
+playoff_pbpdf$original_x  <- as.numeric(playoff_pbpdf$original_x)
+playoff_pbpdf$original_y  <- as.numeric(playoff_pbpdf$original_y)
+playoff_pbpdf$converted_x  <- as.numeric(playoff_pbpdf$converted_x)
+playoff_pbpdf$converted_y  <- as.numeric(playoff_pbpdf$converted_y)
+
+# Select playoff games for the two selected teams
+selected_playoff_pbpdf <- 
+  playoff_pbpdf[(playoff_pbpdf$game_id %in% 
+                   selected_playoff_gamesdf$game_id), ]
+
+# Convert time data to seconds via lubridate for the regular season games
+selected_season_pbpdf$remaining_time_seconds <- 
+  minute(hms(selected_season_pbpdf$remaining_time)) * 60 + 
+  second(hms(selected_season_pbpdf$remaining_time))
+selected_season_pbpdf$elapsed_seconds <- 
+  minute(hms(selected_season_pbpdf$elapsed)) * 60 +
+  second(hms(selected_season_pbpdf$elapsed))
+selected_season_pbpdf$play_length_seconds <- 
+  minute(hms(selected_season_pbpdf$play_length)) * 60 +
+  second(hms(selected_season_pbpdf$play_length))
+
+selected_season_pbpdf$game_remaining_seconds <- 
+  numeric(nrow(selected_season_pbpdf))
+for (irecord in seq(along = selected_season_pbpdf$game_id)) {
+  if (selected_season_pbpdf$period[irecord] == 1) 
+    selected_season_pbpdf$game_remaining_seconds[irecord] <- 
+      selected_season_pbpdf$remaining_time_seconds[irecord] + (12 * 60 * 3)
+  if (selected_season_pbpdf$period[irecord] == 2) 
+    selected_season_pbpdf$game_remaining_seconds[irecord] <- 
+      selected_season_pbpdf$remaining_time_seconds[irecord] + (12 * 60 * 2)            
+  if (selected_season_pbpdf$period[irecord] == 3) 
+    selected_season_pbpdf$game_remaining_seconds[irecord] <- 
+      selected_season_pbpdf$remaining_time_seconds[irecord] + (12 * 60 * 1)            
+}       
+
+# Convert time data to seconds via lubridate for the playoff games
+selected_playoff_pbpdf$remaining_time_seconds <- 
+  minute(hms(selected_playoff_pbpdf$remaining_time)) * 60 + 
+  second(hms(selected_playoff_pbpdf$remaining_time))
+selected_playoff_pbpdf$elapsed_seconds <- 
+  minute(hms(selected_playoff_pbpdf$elapsed)) * 60 +
+  second(hms(selected_playoff_pbpdf$elapsed))
+selected_playoff_pbpdf$play_length_seconds <- 
+  minute(hms(selected_playoff_pbpdf$play_length)) * 60 +
+  second(hms(selected_playoff_pbpdf$play_length))
+
+selected_playoff_pbpdf$game_remaining_seconds <- 
+  numeric(nrow(selected_playoff_pbpdf))
+for (irecord in seq(along = selected_playoff_pbpdf$game_id)) {
+  if (selected_playoff_pbpdf$period[irecord] == 1) 
+    selected_playoff_pbpdf$game_remaining_seconds[irecord] <- 
+      selected_playoff_pbpdf$remaining_time_seconds[irecord] + (12 * 60 * 3)
+  if (selected_playoff_pbpdf$period[irecord] == 2) 
+    selected_playoff_pbpdf$game_remaining_seconds[irecord] <- 
+      selected_playoff_pbpdf$remaining_time_seconds[irecord] + (12 * 60 * 2)            
+  if (selected_playoff_pbpdf$period[irecord] == 3) 
+    selected_playoff_pbpdf$game_remaining_seconds[irecord] <- 
+      selected_playoff_pbpdf$remaining_time_seconds[irecord] + (12 * 60 * 1)            
+}       
+
+# Add away_team and home_team columns to the play-by-play records
+selected_season_pbpdf$away_team <- character(nrow(selected_season_pbpdf))
+selected_season_pbpdf$home_team <- character(nrow(selected_season_pbpdf))
+
+# Add information about winning team to each record 
+# in the season play-to-play data frame
+selected_season_pbpdf$away_win <- numeric(nrow(selected_season_pbpdf))
+selected_season_pbpdf$home_win <- numeric(nrow(selected_season_pbpdf))
+
+list_of_season_game_id <- unique(selected_season_pbpdf$game_id) 
+for (igame in seq(along = list_of_season_game_id)) {
+  this_game_team_info <- 
+    selected_season_gamesdf[(selected_season_gamesdf$game_id ==
+                               list_of_season_game_id[igame]), ]            
+  selected_season_pbpdf[(selected_season_pbpdf$game_id == 
+                           list_of_season_game_id[igame]), 'away_team'] <- 
+    this_game_team_info$away_team            
+  selected_season_pbpdf[(selected_season_pbpdf$game_id == 
+                           list_of_season_game_id[igame]), 'home_team'] <- 
+    this_game_team_info$home_team            
+  
+  this_gamedf <- selected_season_pbpdf[(selected_season_pbpdf$game_id == 
+                                          list_of_season_game_id[igame]), ] 
+  
+  final_away_score <- max(this_gamedf$away_score)
+  final_home_score <- max(this_gamedf$home_score)
+  if (final_away_score > final_home_score) 
+    selected_season_pbpdf[(selected_season_pbpdf$game_id == 
+                             list_of_season_game_id[igame]), 'away_win'] <- 1
+  if (final_away_score < final_home_score) 
+    selected_season_pbpdf[(selected_season_pbpdf$game_id == 
+                             list_of_season_game_id[igame]), 'home_win'] <- 1        
+}
+
+
+# Add away_team and home_team columns to the play-by-play records
+selected_playoff_pbpdf$away_team <- character(nrow(selected_playoff_pbpdf))
+selected_playoff_pbpdf$home_team <- character(nrow(selected_playoff_pbpdf))
+
+# Add information about winning team to each record 
+# in the playoff play-to-play data frame
+selected_playoff_pbpdf$away_win <- numeric(nrow(selected_playoff_pbpdf))
+selected_playoff_pbpdf$home_win <- numeric(nrow(selected_playoff_pbpdf))
+
+list_of_playoff_game_id <- unique(selected_playoff_pbpdf$game_id) 
+for (igame in seq(along = list_of_playoff_game_id)) {
+  this_game_team_info <- 
+    selected_playoff_gamesdf[(selected_playoff_gamesdf$game_id ==
+                                list_of_playoff_game_id[igame]), ]            
+  selected_playoff_pbpdf[(selected_playoff_pbpdf$game_id == 
+                            list_of_playoff_game_id[igame]), 'away_team'] <- 
+    this_game_team_info$away_team            
+  selected_playoff_pbpdf[(selected_playoff_pbpdf$game_id == 
+                            list_of_playoff_game_id[igame]), 'home_team'] <- 
+    this_game_team_info$home_team            
+  
+  this_gamedf <- selected_playoff_pbpdf[(selected_playoff_pbpdf$game_id == 
+                                           list_of_playoff_game_id[igame]), ] 
+  
+  final_away_score <- max(this_gamedf$away_score)
+  final_home_score <- max(this_gamedf$home_score)
+  if (final_away_score > final_home_score) 
+    selected_playoff_pbpdf[(selected_playoff_pbpdf$game_id == 
+                              list_of_playoff_game_id[igame]), 'away_win'] <- 1
+  if (final_away_score < final_home_score) 
+    selected_playoff_pbpdf[(selected_playoff_pbpdf$game_id == 
+                              list_of_playoff_game_id[igame]), 'home_win'] <- 1        
+}
+
+# Select season working data for plus-minus computations
+working_season_pbpdf <- selected_season_pbpdf[, c(
+  "game_id", "away_team", "home_team", 
+  "a1", "a2", "a3", "a4", "a5", "h1", "h2", "h3", "h4", "h5",
+  "period", "away_score", "home_score", 
+  "remaining_time_seconds", "elapsed_seconds", "play_length_seconds", 
+  "play_id", "team",         
+  "game_remaining_seconds", "away_win", "home_win")]   
+
+# Select playoff working data for plus-minus computations
+working_playoff_pbpdf <- selected_playoff_pbpdf[, c(
+  "game_id", "away_team", "home_team", 
+  "a1", "a2", "a3", "a4", "a5", "h1", "h2", "h3", "h4", "h5",
+  "period", "away_score", "home_score", 
+  "remaining_time_seconds", "elapsed_seconds", "play_length_seconds", 
+  "play_id", "team",         
+  "game_remaining_seconds", "away_win", "home_win")]   
+
+# Export the working play-by-play data to comma-delimited text files
+# Use file names defined by the selected playoff teams
+season_file_name <- paste(selected_teams[1], '-', selected_teams[2],
+                          '-', 'season-working-data.csv', sep = '')
+playoff_file_name <- paste(selected_teams[1], '-', selected_teams[2],
+                           '-', 'playoff-working-data.csv', sep = '')
+write.csv(working_season_pbpdf, file = season_file_name, 
+          quote = TRUE, row.names = FALSE)
+write.csv(working_playoff_pbpdf, file = playoff_file_name, 
+          quote = TRUE, row.names = FALSE)  
+
+# Data dictionary for the working data frames        
+# game_id	Official Game ID at NBA.com
+# away_team	Three-character abreviation for away team
+# home_team	Three-character abreviation for home team
+#
+# Active plyers on the court
+# a1	First player of away team 
+# a2	Second player of away team 
+# a3	Third player of away team 
+# a4	Fourth player of away team 
+# a5	Fifth player of away team 
+# h1	First player of home team 
+# h2	Second player of home team 
+# h3	Third player of home team 
+# h4	Fourth player of home team 
+# h5	Fifth player of home team 
+
+# period	Period of the game 
+# away_score	Accumulated score of away team at that moment in the game
+# home_score	Accumulated score of home team at that moment in the game
+# remaining_time_seconds	Remaining time in the period (seconds)
+# elapsed_seconds	Time passed since the period has started (seconds)
+# play_length_seconds	Duration of the event described in that row (seconds)
+# play_id	All events in a game have an id number (character string)
+# team	The team that has executed the described event
+# game_remaining_seconds	Seconds remaining in a game of four periods
+# away_win	Did the away team win the game? 0 = no 1 = yes
+# home_win	Did the home team win the game? 0 = no 1 = yes    
+
+"Simple Win Probability Model for Portland Trail Blazer and New Orleans Pelicans"
+
+working_season_pbpdf["home_change"]<-0
+working_season_pbpdf["away_change"]<-0
+for (i in 2:nrow(working_season_pbpdf)){
+  if (working_season_pbpdf$play_length_seconds[i]<0){
+    working_season_pbpdf$play_length_seconds[i]<-0
+  }
+  j<-i-1
+  if (working_season_pbpdf$away_score[i]>working_season_pbpdf$away_score[j]){
+    working_season_pbpdf$away_change[i]<-working_season_pbpdf$away_score[i]-working_season_pbpdf$away_score[j]
+    working_season_pbpdf$home_change[i]<-working_season_pbpdf$away_change[i]*-1
+  }
+  
+  if (working_season_pbpdf$home_score[i]>working_season_pbpdf$home_score[j]){
+    working_season_pbpdf$home_change[i]<-working_season_pbpdf$home_score[i]-working_season_pbpdf$home_score[j]
+    working_season_pbpdf$away_change[i]<-working_season_pbpdf$home_change[i]*-1
+  }
+}
+
+a1_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$away_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$a1,working_season_pbpdf$away_team), FUN=sum)
+names(a1_agg)<-c("game_id","player","team","seconds","plus.minus")
+a2_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$away_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$a2,working_season_pbpdf$away_team), FUN=sum)
+names(a2_agg)<-c("game_id","player","team","seconds","plus.minus")
+a3_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$away_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$a3,working_season_pbpdf$away_team), FUN=sum)
+names(a3_agg)<-c("game_id","player","team","seconds","plus.minus")
+a4_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$away_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$a4,working_season_pbpdf$away_team), FUN=sum)
+names(a4_agg)<-c("game_id","player","team","seconds","plus.minus")
+a5_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$away_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$a5,working_season_pbpdf$away_team), FUN=sum)
+names(a5_agg)<-c("game_id","player","team","seconds","plus.minus")
+h1_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$home_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$h1,working_season_pbpdf$home_team), FUN=sum)
+names(h1_agg)<-c("game_id","player","team","seconds","plus.minus")
+h2_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$home_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$h2,working_season_pbpdf$home_team), FUN=sum)
+names(h2_agg)<-c("game_id","player","team","seconds","plus.minus")
+h3_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$home_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$h3,working_season_pbpdf$home_team), FUN=sum)
+names(h3_agg)<-c("game_id","player","team","seconds","plus.minus")
+h4_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$home_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$h4,working_season_pbpdf$home_team), FUN=sum)
+names(h4_agg)<-c("game_id","player","team","seconds","plus.minus")
+h5_agg<-aggregate(cbind(working_season_pbpdf$play_length_seconds,working_season_pbpdf$home_change), by=list(working_season_pbpdf$game_id,working_season_pbpdf$h5,working_season_pbpdf$home_team), FUN=sum)
+names(h5_agg)<-c("game_id","player","team","seconds","plus.minus")
+
+all_players<-rbind(a1_agg,a2_agg,a3_agg,a4_agg,a5_agg,h1_agg,h2_agg,h3_agg,h4_agg,h5_agg)
+all_players<-aggregate(cbind(all_players$seconds,all_players$plus.minus),by=list(all_players$game_id,all_players$player,all_players$team),FUN=sum)
+names(all_players)<-c("game_id","player","team","seconds","plus.minus")
+
+#Adjust Plus/Minus for 48 minutes
+all_players["adj.plus.minus"]<-0
+for (i in 1:nrow(all_players)){
+  all_players$adj.plus.minus[i]<-(2880/all_players$seconds[i])*all_players$plus.minus[i]
+}
+newplayers <- subset(all_players, team=="POR"| team == "NOP")
+
+s <- aggregate(newplayers$adj.plus.minus ~ newplayers$player, data = newplayers, FUN = mean)
+s
+
+"Win Probability Model-get probabilty by away team chance of winning depending on score and time left. We run a logistics model"
+
+for (i in 1:nrow(working_season_pbpdf)){
+  if (working_season_pbpdf$game_remaining_seconds[i]==0){
+    working_season_pbpdf$game_remaining_seconds[i]<-working_season_pbpdf$remaining_time_seconds[i]
+  }
+}
+working_season_pbpdf["score_diff"]<-working_season_pbpdf$away_score - working_season_pbpdf$home_score
+working_season_pbpdf["game_elapsed_time"]<-2880-working_season_pbpdf$game_remaining_seconds
+
+
+library(forecast)
+
+
+model<-glm(away_win~score_diff:game_elapsed_time,family = binomial, data=working_season_pbpdf)
+summary(model)
+accuracy(model)
+
+
+prob<-predict(model,type="response")
+prob_season_pbpdf<-cbind(working_season_pbpdf,prob)
+
+
+prob_season_pbpdf["home_prob_change"]<-0
+prob_season_pbpdf["away_prob_change"]<-0
+
+for (i in 2:nrow(prob_season_pbpdf)){
+  j<-i-1
+  prob_season_pbpdf$away_prob_change[i]<-prob_season_pbpdf$prob[i]-prob_season_pbpdf$prob[j]
+}
+prob_season_pbpdf$home_prob_change<-prob_season_pbpdf$away_prob_change*-1
+
+
+
+a1_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$a1,prob_season_pbpdf$away_team), FUN=sum)
+names(a1_prob)<-c("game_id","player","team","seconds","prob.change")
+a2_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$a2,prob_season_pbpdf$away_team), FUN=sum)
+names(a2_prob)<-c("game_id","player","team","seconds","prob.change")
+a3_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$a3,prob_season_pbpdf$away_team), FUN=sum)
+names(a3_prob)<-c("game_id","player","team","seconds","prob.change")
+a4_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$a4,prob_season_pbpdf$away_team), FUN=sum)
+names(a4_prob)<-c("game_id","player","team","seconds","prob.change")
+a5_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$a5,prob_season_pbpdf$away_team), FUN=sum)
+names(a5_prob)<-c("game_id","player","team","seconds","prob.change")
+h1_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$h1,prob_season_pbpdf$home_team), FUN=sum)
+names(h1_prob)<-c("game_id","player","team","seconds","prob.change")
+h2_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$h2,prob_season_pbpdf$home_team), FUN=sum)
+names(h2_prob)<-c("game_id","player","team","seconds","prob.change")
+h3_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$h3,prob_season_pbpdf$home_team), FUN=sum)
+names(h3_prob)<-c("game_id","player","team","seconds","prob.change")
+h4_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$h4,prob_season_pbpdf$home_team), FUN=sum)
+names(h4_prob)<-c("game_id","player","team","seconds","prob.change")
+h5_prob<-aggregate(cbind(prob_season_pbpdf$play_length_seconds,prob_season_pbpdf$away_prob_change), by=list(prob_season_pbpdf$game_id,prob_season_pbpdf$h5,prob_season_pbpdf$home_team), FUN=sum)
+names(h5_prob)<-c("game_id","player","team","seconds","prob.change")
+
+prob_players<-rbind(a1_prob,a2_prob,a3_prob,a4_prob,a5_prob,h1_prob,h2_prob,h3_prob,h4_prob,h5_prob)
+prob_players<-aggregate(cbind(prob_players$seconds,prob_players$prob.change),by=list(prob_players$game_id,prob_players$player,prob_players$team),FUN=sum)
+names(prob_players)<-c("game_id","player","team","seconds","prob.change")
+newplayers2 <- subset(prob_players, team=="POR"| team == "NOP")
+l <- aggregate(newplayers2$prob.change ~ newplayers2$player, data = prob_players, FUN = mean)
+l
+"PLAYOFF MODE-using simple win-plus minus model for playoff games between NOP and PORL"
+
+working_playoff_pbpdf["home_change"]<-0
+working_playoff_pbpdf["away_change"]<-0
+for (i in 2:nrow(working_playoff_pbpdf)){
+  if (working_playoff_pbpdf$play_length_seconds[i]<0){
+    working_playoff_pbpdf$play_length_seconds[i]<-0
+  }
+  j<-i-1
+  if (working_playoff_pbpdf$away_score[i]>working_playoff_pbpdf$away_score[j]){
+    working_playoff_pbpdf$away_change[i]<-working_playoff_pbpdf$away_score[i]-working_playoff_pbpdf$away_score[j]
+    working_playoff_pbpdf$home_change[i]<-working_playoff_pbpdf$away_change[i]*-1
+  }
+  
+  if (working_playoff_pbpdf$home_score[i]>working_playoff_pbpdf$home_score[j]){
+    working_playoff_pbpdf$home_change[i]<-working_playoff_pbpdf$home_score[i]-working_playoff_pbpdf$home_score[j]
+    working_playoff_pbpdf$away_change[i]<-working_playoff_pbpdf$home_change[i]*-1
+  }
+}
+
+a1_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$away_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$a1,working_playoff_pbpdf$away_team), FUN=sum)
+names(a1_agg)<-c("game_id","player","team","seconds","plus.minus")
+a2_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$away_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$a2,working_playoff_pbpdf$away_team), FUN=sum)
+names(a2_agg)<-c("game_id","player","team","seconds","plus.minus")
+a3_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$away_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$a3,working_playoff_pbpdf$away_team), FUN=sum)
+names(a3_agg)<-c("game_id","player","team","seconds","plus.minus")
+a4_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$away_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$a4,working_playoff_pbpdf$away_team), FUN=sum)
+names(a4_agg)<-c("game_id","player","team","seconds","plus.minus")
+a5_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$away_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$a5,working_playoff_pbpdf$away_team), FUN=sum)
+names(a5_agg)<-c("game_id","player","team","seconds","plus.minus")
+h1_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$home_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$h1,working_playoff_pbpdf$home_team), FUN=sum)
+names(h1_agg)<-c("game_id","player","team","seconds","plus.minus")
+h2_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$home_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$h2,working_playoff_pbpdf$home_team), FUN=sum)
+names(h2_agg)<-c("game_id","player","team","seconds","plus.minus")
+h3_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$home_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$h3,working_playoff_pbpdf$home_team), FUN=sum)
+names(h3_agg)<-c("game_id","player","team","seconds","plus.minus")
+h4_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$home_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$h4,working_playoff_pbpdf$home_team), FUN=sum)
+names(h4_agg)<-c("game_id","player","team","seconds","plus.minus")
+h5_agg<-aggregate(cbind(working_playoff_pbpdf$play_length_seconds,working_playoff_pbpdf$home_change), by=list(working_playoff_pbpdf$game_id,working_playoff_pbpdf$h5,working_playoff_pbpdf$home_team), FUN=sum)
+names(h5_agg)<-c("game_id","player","team","seconds","plus.minus")
+
+all_players2<-rbind(a1_agg,a2_agg,a3_agg,a4_agg,a5_agg,h1_agg,h2_agg,h3_agg,h4_agg,h5_agg)
+all_players2<-aggregate(cbind(all_players2$seconds,all_players2$plus.minus),by=list(all_players2$game_id,all_players2$player,all_players2$team),FUN=sum)
+names(all_players2)<-c("game_id","player","team","seconds","plus.minus")
+
+#Adjust Plus/Minus for 48 minutes
+all_players2["adj.plus.minus"]<-0
+for (i in 1:nrow(all_players2)){
+  all_players2$adj.plus.minus[i]<-(2880/all_players2$seconds[i])*all_players2$plus.minus[i]
+}
+
+"Sum of plus minus by game and by team"
+j <- aggregate(all_players2$adj.plus.minus ~ all_players2$game_id + all_players2$team , data = all_players2, FUN = sum)
+j
+
+"Average of plus minus by game and by team"
+ws <- aggregate(all_players2$adj.plus.minus ~ all_players2$game_id + all_players2$team , data = all_players2, FUN = mean)
+ws
+
+"Average of adjusted plus minus for players in playoff series"
+kj <-  aggregate(all_players2$adj.plus.minus ~ all_players2$player , data = all_players2, FUN = mean)
+kj
